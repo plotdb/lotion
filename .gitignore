@@ -1,0 +1,7 @@
+/context/shared
+node_modules
+web/.view
+web/static/assets/lib
+.*.swp
+*.log
+__pycache__

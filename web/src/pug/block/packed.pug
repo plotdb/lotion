@@ -1,0 +1,14 @@
+doctype html
+html(lang="zh-Hant-TW")
+  head
+    meta(charset="utf-8")
+    meta(name="viewport",content="width=device-width,initial-scale=1")
+    title lotion block demo
+    link(href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Noto+Sans+TC:wght@400;500;700&display=swap",rel="stylesheet")
+    style(type="text/css"): include:stylus ../index.styl
+  body
+    .wrap
+      h1 lotion block demo
+      p.hint packed 模式：只需 player.js 與 bundle 檔，可整組搬到其它網站
+      div(data-block="lotion-demo",data-bundle="lotion-demo.bundle.html")
+    script(src="player.js")
