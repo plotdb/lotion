@@ -1,4 +1,4 @@
-## master
+## v0.1.0
 
  - features:
    - player: show a loading screen until `start()` ( `loading` option: `true` / custom html / `false` );
