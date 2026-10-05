@@ -1,9 +1,0 @@
-//- @plotdb/block 版的 demo: lotion runtime 與其樣式以依賴宣告, 由 rescope / csscope 注入與限定範圍.
-//- csscope 把樣式限定在 root 的子孫, 所以 .demo 放在 root 之下, 與一般頁面共用同一份 scene.styl
-div
-  .demo
-  style(type="text/css")
-    include:stylus ../../scene.styl
-  script(type="@plotdb/block")
-    include:lsc ../../scene.ls
-    include:lsc index.ls
