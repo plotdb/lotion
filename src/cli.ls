@@ -167,8 +167,12 @@ bundle = (base, name, out, opt) ->
       .finally -> browser.close!
 
 # 音訊工具: 直接把參數轉交給對應的 python script
+#  audio/ 的位置: 發佈版 ( fedep publish 把 dist/ 攤平到根目錄 ) 與 cli.js 同層; repo 內則在 dist/ 的上一層
+audio-dir = ->
+  [path.join(__dirname, 'audio'), path.join(__dirname, '..', 'audio')].find (d) -> fs.existsSync d
 audio = (cmd, args) -> new Promise (res, rej) ->
-  f = path.join __dirname, '..', 'audio', "#cmd.py"
+  if !(d = audio-dir!) => return rej new Error("audio scripts not found")
+  f = path.join d, "#cmd.py"
   py = child_process.spawn (process.env.PYTHON or \python3), [f] ++ args, {stdio: \inherit}
   py.on \error, rej
   py.on \close, (c) -> if c => rej new Error("#cmd.py exited with #c") else res!

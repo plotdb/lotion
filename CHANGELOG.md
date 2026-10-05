@@ -9,6 +9,8 @@
    - player: under `?render`, expose `window.seek` / `window.DURATION` at `start()` instead of construction,
      so the cli never renders a scene still being prepared
    - demo: simulate asynchronous preparation ( `?loading=<ms>`, default 1500 ) to show the loading screen
+   - cli: locate `audio/` both next to `cli.js` ( published by `fedep publish`, dist flattened ) and one level up
+     ( in the repo ), so audio commands work in either layout
  - docs:
    - document the loading behavior in README and `prompt/explainer.md`
 

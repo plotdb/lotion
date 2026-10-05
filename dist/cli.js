@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-var fs, path, http, child_process, usage, parse, types, serve, open, shot, frames, sheet, video, cues, bundle, audio, argv, ref$, pos, opt, cmd, src, out, rest, times, p, slice$ = [].slice;
+var fs, path, http, child_process, usage, parse, types, serve, open, shot, frames, sheet, video, cues, bundle, audioDir, audio, argv, ref$, pos, opt, cmd, src, out, rest, times, p, slice$ = [].slice;
 fs = require('fs');
 path = require('path');
 http = require('http');
@@ -322,10 +322,18 @@ bundle = function(base, name, out, opt){
     });
   });
 };
+audioDir = function(){
+  return [path.join(__dirname, 'audio'), path.join(__dirname, '..', 'audio')].find(function(d){
+    return fs.existsSync(d);
+  });
+};
 audio = function(cmd, args){
   return new Promise(function(res, rej){
-    var f, py;
-    f = path.join(__dirname, '..', 'audio', cmd + ".py");
+    var d, f, py;
+    if (!(d = audioDir())) {
+      return rej(new Error("audio scripts not found"));
+    }
+    f = path.join(d, cmd + ".py");
     py = child_process.spawn(process.env.PYTHON || 'python3', [f].concat(args), {
       stdio: 'inherit'
     });
