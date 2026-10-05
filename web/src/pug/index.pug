@@ -20,6 +20,7 @@ html(lang="zh-Hant-TW")
         可以拖曳、跳段，也能用 <code>lotion video</code> 逐格輸出成影片。
       #demo.demo
       p.hint 點畫面或按空白鍵播放 / 暫停，← / → 切換段落，F 全螢幕。
+      p.hint 載入畫面：內容在 <code>start()</code> 之前不會顯示。此頁刻意延遲 1.5 秒，網址加上 <code>?loading=毫秒</code> 可調整，0 為不延遲。
       p.hint 同一段動畫的 block 版本：<a href="/block/">registry 模式</a>、<a href="/block/packed.html">packed 模式</a>。
     +script([{name: "lotion", version: "dev", path: "index.js", defer: false}])
     script(type="text/javascript")

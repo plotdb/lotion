@@ -117,6 +117,30 @@
   background: var(--lotion-mute);
   opacity: 0.5;
 }
+.lotion.lotion-loading .lotion-stage {
+  visibility: hidden;
+}
+.lotion.lotion-loading .lotion-bar {
+  opacity: 0.5;
+  pointer-events: none;
+}
+.lotion .lotion-loading-screen {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--lotion-bg);
+  color: var(--lotion-mute);
+}
+.lotion .lotion-spinner {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  border: 3px solid var(--lotion-line);
+  border-top-color: var(--lotion-ink);
+  animation: lotion-spin 0.8s linear infinite;
+}
 .lotion:fullscreen {
   display: flex;
   flex-direction: column;
@@ -144,4 +168,24 @@
 }
 .lotion.lotion-render .lotion-bar {
   display: none;
+}
+@-moz-keyframes lotion-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@-webkit-keyframes lotion-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@-o-keyframes lotion-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@keyframes lotion-spin {
+  to {
+    transform: rotate(360deg);
+  }
 }

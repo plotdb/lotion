@@ -49,8 +49,18 @@ player options:
  - `start`: initial time. `?t=<sec>` in the url takes precedence.
  - `autoplay`: default `false`.
  - `cues`: optional function returning sound cues `[{t, ...}]`, exported by `lotion cues`.
+ - `loading`: what to show before `start()`. default `true` ( a spinner ); a string is used as custom html;
+   `false` shows nothing.
 
 player methods: `start()`, `seek(t)`, `play(go = true)`, `pause()`, `toggle()`, `fullscreen()`.
+`player.ready` is a promise resolved by `start()`.
+
+Until `start()` is called, the stage is hidden behind the loading screen, the control bar is disabled, and
+`seek` / `play` do nothing. Scenes often need asynchronous preparation before the first frame is right
+( web fonts, measuring the layout to place things ), and a half-built stage should not be seen or scrubbed.
+So build the scene, finish whatever it waits for, then call `start()`:
+
+    Promise.all([document.fonts.ready, prepare!]).then -> p.start!
 Keys ( when the player is focused ): `space` play / pause, `←` / `→` previous / next chapter, `f` fullscreen.
 
 helpers:
@@ -78,7 +88,9 @@ With `?render` in the url, a page should cover the viewport with its stage and e
  - `window.DURATION`: total length in seconds.
  - `window.cues()`: optional, list of sound cues.
 
-`lotion.player` does this automatically. Any other page can follow the protocol by itself.
+`lotion.player` does this automatically, and only when `start()` is called: the cli waits for `window.seek` to
+exist before rendering, so it never captures a scene that is still being prepared. Any other page can follow
+the protocol by itself; likewise, define `window.seek` only when the first frame can be rendered correctly.
 
 
 ## Block Player
@@ -99,7 +111,8 @@ rescope ) and a loader, about 47KB minified.
    ( don't mount automatically; use `lotionBlock.mount(el)` ).
  - `window.lotionBlock`: `{manager, mount, ready}`.
  - If a mounted block's interface provides `seek(t)` and `duration`, they are exposed per the render protocol
-   under `?render`. A block using `lotion.player` gets this from the player as well.
+   under `?render`. If it also provides `ready` ( a promise, e.g. `player.ready` ), they are exposed after it
+   resolves. A block using `lotion.player` should pass `ready: player.ready` in its interface.
 
 Note that csscope scopes a block's style to the *descendants* of its root, so put the element your style
 targets under the root ( or use `:scope` ). A block sample is in `web/src/pug/block/lotion-demo`.

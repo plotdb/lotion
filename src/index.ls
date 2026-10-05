@@ -98,8 +98,12 @@ svg = (tag, attrs = {}, parent) ->
 #   - start: 初始時間. 網址的 ?t=秒數 優先.
 #   - autoplay: 預設 false
 #   - cues: 選用, -> [{t, name, ...}] 給 cli 匯出音效時間點
-#  建構時只建立 dom ( stage 可由 .stage 取得 ); 畫面內容建好後呼叫 start().
-#  網址帶 ?render 時: 舞台蓋滿視窗、隱藏控制列、不播放, 並設定 window.seek / window.DURATION.
+#   - loading: start() 之前顯示的載入畫面. 預設 true ( 內建 spinner ); 字串為自訂 html; false 不顯示
+#  建構時只建立 dom ( stage 可由 .stage 取得 ); 畫面內容建好後呼叫 start(). .ready 為 start() 時 resolve 的 promise.
+#  start() 之前舞台隱藏並顯示載入畫面, 控制列不作用: 內容常需非同步準備 ( 字型、依版面量測位置 ),
+#  未完成時的畫面是錯亂的, 不該被看到或被拖曳.
+#  網址帶 ?render 時: 舞台蓋滿視窗、隱藏控制列、不播放; 並在 start() 時才設定 window.seek / window.DURATION,
+#  讓逐格輸出以「seek 已存在」判斷頁面就緒.
 player = (opt = {}) ->
   @opt = opt
   @root = if typeof(opt.root) == \string => document.querySelector(opt.root) else opt.root
@@ -111,6 +115,9 @@ player = (opt = {}) ->
     t: 0
     playing: false
     last: null
+    started: false
+  # start() 時 resolve: 供外部 ( 如 block loader ) 等待內容就緒
+  @ready = new Promise (res) ~> @ready-res = res
   @render-mode = /[?&]render\b/.test location.search
   @init!
   @
@@ -126,6 +133,10 @@ player.prototype = Object.create(Object.prototype) <<<
     @stage = mk \lotion-stage, '', @viewport
     @stage.style <<< {width: "#{@width}px", height: "#{@height}px"}
     @viewport.style.aspectRatio = "#{@width} / #{@height}"
+    r.classList.add \lotion-loading
+    if @opt.loading != false
+      html = if typeof(@opt.loading) == \string => @opt.loading else '<div class="lotion-spinner"></div>'
+      @loading = mk \lotion-loading-screen, html, @viewport
     @bar = mk \lotion-bar, '''
       <div class="lotion-btn lotion-play"></div>
       <div class="lotion-track"><div class="lotion-rail"></div><div class="lotion-fill"></div>
@@ -141,17 +152,21 @@ player.prototype = Object.create(Object.prototype) <<<
       e.title = name
       e.style.left = "#{100 * t / @duration}%"
     @bind!
-    if @render-mode =>
-      r.classList.add \lotion-render
-      window.seek = (t) ~> @opt.seek t
-      window.DURATION = @duration
-      if @opt.cues => window.cues = @opt.cues
+    if @render-mode => r.classList.add \lotion-render
     @fit!
     if typeof(ResizeObserver) != \undefined => new ResizeObserver(~> @fit!).observe @viewport
     else window.addEventListener \resize, ~> @fit!
 
-  # 內容建好後呼叫: 顯示初始畫面, 並依設定自動播放
+  # 內容建好後呼叫: 移除載入畫面、顯示初始畫面, 並依設定自動播放
   start: ->
+    @started = true
+    @root.classList.remove \lotion-loading
+    if @loading => @loading.remove!
+    if @render-mode
+      window.seek = (t) ~> @opt.seek t
+      window.DURATION = @duration
+      if @opt.cues => window.cues = @opt.cues
+    @ready-res @
     m = /[?&]t=([\d.]+)/.exec location.search
     @seek(if m => +m.1 else if @render-mode => 0 else (@opt.start or 0))
     if @opt.autoplay and !@render-mode => document.fonts.ready.then ~> @play true
@@ -187,7 +202,9 @@ player.prototype = Object.create(Object.prototype) <<<
 
   fmt: (t) -> "#{Math.floor(t / 60)}:#{"0#{Math.floor(t % 60)}".slice(-2)}"
 
+  # start() 之前內容尚未就緒: 不呼叫 opt.seek, 也不播放
   seek: (t) ->
+    if !@started => return
     @t = t = clamp t, 0, @duration
     @opt.seek t
     p = "#{100 * t / @duration}%"
@@ -205,6 +222,7 @@ player.prototype = Object.create(Object.prototype) <<<
     requestAnimationFrame (n) ~> @tick n
 
   play: (go = true) ->
+    if !@started => return
     if go and @t >= @duration => @t = 0
     @playing = go
     @last = null

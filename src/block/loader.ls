@@ -8,7 +8,8 @@
 #   - data-lib-root: 依賴函式庫的位置, 預設 `/assets/lib` -> <root>/<name>/<version>/<path>
 #   - data-manual: 有此屬性時不自動掛載, 改由 lotionBlock.mount(el) 手動掛載
 #  掛載的 block 若在 interface 提供 seek(t) 與 duration, 網址帶 ?render 時會設定 window.seek / window.DURATION,
-#  如此即可用 lotion cli 逐格輸出.
+#  如此即可用 lotion cli 逐格輸出. interface 可另提供 ready ( promise, 如 player.ready ): 等它完成才設定,
+#  cli 以 window.seek 是否存在判斷頁面就緒.
 do ->
   script = document.currentScript
   ds = (script and script.dataset) or {}
@@ -24,11 +25,12 @@ do ->
       .then -> mgr.from {name: el.dataset.block, version: el.dataset.version, path: el.dataset.path}, {root: el}
       .then ({interface: itf}) ->
         el.block = itf
-        if itf and itf.seek and itf.duration? and /[?&]render\b/.test(location.search) =>
+        if !(itf and itf.seek and itf.duration? and /[?&]render\b/.test(location.search)) => return itf
+        Promise.resolve(itf.ready).then ->
           window.seek = (t) -> itf.seek t
           window.DURATION = itf.duration
           if itf.cues => window.cues = itf.cues
-        itf
+          itf
   start = ->
     if ds.manual? => return Promise.resolve []
     mgr.init!then -> Promise.all Array.from(document.querySelectorAll '[data-block]').map(mount)

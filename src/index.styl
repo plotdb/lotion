@@ -103,6 +103,34 @@
     background: var(--lotion-mute)
     opacity: .5
 
+// 載入中 ( start() 之前 ): 舞台內容可能尚未就緒, 先藏起來並顯示載入畫面; 控制列不作用
+.lotion.lotion-loading
+  .lotion-stage
+    visibility: hidden
+  .lotion-bar
+    opacity: .5
+    pointer-events: none
+.lotion
+  .lotion-loading-screen
+    position: absolute
+    inset: 0
+    display: flex
+    align-items: center
+    justify-content: center
+    background: var(--lotion-bg)
+    color: var(--lotion-mute)
+  // 播放器本身的 UI, 不在 seek(t) 控制的舞台內, 可以用 css 動畫
+  .lotion-spinner
+    width: 36px
+    height: 36px
+    border-radius: 50%
+    border: 3px solid var(--lotion-line)
+    border-top-color: var(--lotion-ink)
+    animation: lotion-spin .8s linear infinite
+@keyframes lotion-spin
+  to
+    transform: rotate(360deg)
+
 // 全螢幕: 控制列固定在底部, 舞台填滿其餘空間
 .lotion:fullscreen
   display: flex

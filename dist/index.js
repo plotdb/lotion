@@ -179,6 +179,7 @@
     return e;
   };
   player = function(opt){
+    var this$ = this;
     opt == null && (opt = {});
     this.opt = opt;
     this.root = typeof opt.root === 'string'
@@ -191,12 +192,16 @@
     this.t = 0;
     this.playing = false;
     this.last = null;
+    this.started = false;
+    this.ready = new Promise(function(res){
+      return this$.readyRes = res;
+    });
     this.renderMode = /[?&]render\b/.test(location.search);
     this.init();
     return this;
   };
   player.prototype = (ref$ = Object.create(Object.prototype), ref$.constructor = player, ref$.init = function(){
-    var r, ref$, q, this$ = this;
+    var r, ref$, html, q, this$ = this;
     r = this.root;
     r.classList.add('lotion');
     if (!r.hasAttribute('tabindex')) {
@@ -208,6 +213,11 @@
     ref$.width = this.width + "px";
     ref$.height = this.height + "px";
     this.viewport.style.aspectRatio = this.width + " / " + this.height;
+    r.classList.add('lotion-loading');
+    if (this.opt.loading !== false) {
+      html = typeof this.opt.loading === 'string' ? this.opt.loading : '<div class="lotion-spinner"></div>';
+      this.loading = mk('lotion-loading-screen', html, this.viewport);
+    }
     this.bar = mk('lotion-bar', '<div class="lotion-btn lotion-play"></div>\n<div class="lotion-track"><div class="lotion-rail"></div><div class="lotion-fill"></div>\n<div class="lotion-chapters"></div><div class="lotion-knob"></div></div>\n<div class="lotion-time"></div>\n<div class="lotion-btn lotion-fs" title="全螢幕"><svg width="16" height="16" viewBox="0 0 16 16" fill="none"\nstroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M2 6V2h4M10 2h4v4M14 10v4h-4M6 14H2v-4"/></svg></div>', r);
     q = function(n){
       return this$.bar.querySelector(".lotion-" + n);
@@ -231,13 +241,6 @@
     this.bind();
     if (this.renderMode) {
       r.classList.add('lotion-render');
-      window.seek = function(t){
-        return this$.opt.seek(t);
-      };
-      window.DURATION = this.duration;
-      if (this.opt.cues) {
-        window.cues = this.opt.cues;
-      }
     }
     this.fit();
     if (typeof ResizeObserver !== 'undefined') {
@@ -251,6 +254,21 @@
     }
   }, ref$.start = function(){
     var m, this$ = this;
+    this.started = true;
+    this.root.classList.remove('lotion-loading');
+    if (this.loading) {
+      this.loading.remove();
+    }
+    if (this.renderMode) {
+      window.seek = function(t){
+        return this$.opt.seek(t);
+      };
+      window.DURATION = this.duration;
+      if (this.opt.cues) {
+        window.cues = this.opt.cues;
+      }
+    }
+    this.readyRes(this);
     m = /[?&]t=([\d.]+)/.exec(location.search);
     this.seek(m
       ? +m[1]
@@ -331,6 +349,9 @@
     return Math.floor(t / 60) + ":" + ("0" + Math.floor(t % 60)).slice(-2);
   }, ref$.seek = function(t){
     var p, ch;
+    if (!this.started) {
+      return;
+    }
     this.t = t = clamp(t, 0, this.duration);
     this.opt.seek(t);
     p = 100 * t / this.duration + "%";
@@ -361,6 +382,9 @@
   }, ref$.play = function(go){
     var this$ = this;
     go == null && (go = true);
+    if (!this.started) {
+      return;
+    }
     if (go && this.t >= this.duration) {
       this.t = 0;
     }

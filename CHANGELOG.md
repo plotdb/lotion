@@ -1,3 +1,18 @@
+## master
+
+ - features:
+   - player: show a loading screen until `start()` ( `loading` option: `true` / custom html / `false` );
+     the stage is hidden, the control bar disabled, and `seek` / `play` ignored meanwhile
+   - player: `player.ready`, a promise resolved by `start()`
+   - block loader: wait for the interface's `ready` before exposing the render protocol
+ - tweaks:
+   - player: under `?render`, expose `window.seek` / `window.DURATION` at `start()` instead of construction,
+     so the cli never renders a scene still being prepared
+   - demo: simulate asynchronous preparation ( `?loading=<ms>`, default 1500 ) to show the loading screen
+ - docs:
+   - document the loading behavior in README and `prompt/explainer.md`
+
+
 ## v0.0.1
 
  - init release

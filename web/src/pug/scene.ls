@@ -1,8 +1,9 @@
 # lotion demo 場景: 三段小動畫, 全部由 seek(t) 決定. 一般頁面與 block 版共用.
 #  - lotion: runtime ( 頁面上為全域的 lotion, block 中為 ctx.lotion )
 #  - root: 播放器的容器元素
+#  - ready: 選用的 promise. 實際頁面常需非同步準備 ( 字型、依版面量測 ), 完成前播放器顯示載入畫面
 #  回傳 lotion.player
-scene = (lotion, root) ->
+scene = (lotion, root, ready) ->
   {track, vis, bump, put, mk, txt, typing} = lotion
   T = {spring: 0, liquid: 5.5, text: 11, end: 17}
 
@@ -87,5 +88,5 @@ scene = (lotion, root) ->
       dy = if t > t1 => -16 * (1 - o) else 16 * (1 - o)
       put word-els[i], 0, 480 + dy, 1, o * vis(t, T.text, T.end - 0.4), {blur: (1 - o) * 8}
 
-  p.start!
+  Promise.resolve(ready).then -> p.start!
   p
