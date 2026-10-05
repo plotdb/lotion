@@ -1,3 +1,9 @@
+## master
+
+ - tweaks:
+   - cli: when `playwright` is missing, print how to install it instead of a node stack trace
+
+
 ## v0.1.0
 
  - features:

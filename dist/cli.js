@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-var fs, path, http, child_process, usage, parse, types, serve, open, shot, frames, sheet, video, cues, bundle, audioDir, audio, argv, ref$, pos, opt, cmd, src, out, rest, times, p, slice$ = [].slice;
+var fs, path, http, child_process, usage, parse, types, serve, playwright, open, shot, frames, sheet, video, cues, bundle, audioDir, audio, argv, ref$, pos, opt, cmd, src, out, rest, times, p, slice$ = [].slice;
 fs = require('fs');
 path = require('path');
 http = require('http');
@@ -75,9 +75,22 @@ serve = function(src){
     });
   });
 };
+playwright = function(){
+  var e;
+  try {
+    return require('playwright');
+  } catch (e$) {
+    e = e$;
+    if (e.code !== 'MODULE_NOT_FOUND' || !/playwright/.test(e.message)) {
+      throw e;
+    }
+    console.error('lotion: this command needs playwright, which is not installed. install it with:\n\n    npm i -D playwright\n    npx playwright install chromium');
+    return process.exit(1);
+  }
+};
 open = function(src, opt){
   var chromium, p;
-  chromium = require('playwright').chromium;
+  chromium = playwright().chromium;
   p = /^https?:/.test(src)
     ? Promise.resolve({
       url: src,
@@ -260,7 +273,7 @@ cues = function(src, out, opt){
 };
 bundle = function(base, name, out, opt){
   var chromium, m;
-  chromium = require('playwright').chromium;
+  chromium = playwright().chromium;
   base = base.replace(/\/$/, '');
   m = function(f){
     return require.resolve(f);

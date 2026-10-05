@@ -58,8 +58,22 @@ serve = (src) -> new Promise (res, rej) ->
   server.on \error, rej
   server.listen 0, -> res {url: "http://localhost:#{server.address!port}/#page", close: -> server.close!}
 
+# playwright 是 peer dependency, 需由使用者另外安裝; 缺少時給出安裝方式而非 node 的堆疊訊息.
+# 瀏覽器本體 ( chromium ) 未安裝時, playwright 自己的錯誤訊息已會提示 `npx playwright install`.
+playwright = ->
+  try require \playwright
+  catch e
+    if e.code != \MODULE_NOT_FOUND or !/playwright/.test(e.message) => throw e
+    console.error '''
+    lotion: this command needs playwright, which is not installed. install it with:
+
+        npm i -D playwright
+        npx playwright install chromium
+    '''
+    process.exit 1
+
 open = (src, opt) ->
-  {chromium} = require \playwright
+  {chromium} = playwright!
   p = if /^https?:/.test(src) => Promise.resolve({url: src, close: ->}) else serve(src)
   p.then (srv) ->
     [u, h] = srv.url.split '#'
@@ -141,7 +155,7 @@ cues = (src, out, opt) ->
 
 # block 打包需要 DOM 與 eval, 借瀏覽器執行. bundle 版的 csscope / rescope / block 才帶有 bundle API.
 bundle = (base, name, out, opt) ->
-  {chromium} = require \playwright
+  {chromium} = playwright!
   base = base.replace /\/$/, ''
   m = (f) -> require.resolve f
   chromium.launch!then (browser) ->
