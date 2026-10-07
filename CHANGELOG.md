@@ -1,4 +1,4 @@
-## master
+## v0.2.0
 
  - breaking:
    - remove audio generators ( `audio/`, `lotion bgm | sfx | mix | beats` ); the commands now only print a notice.
