@@ -1,4 +1,4 @@
-## master
+## v0.2.1
 
  - features:
    - cli: `video --workers N` renders with N browsers in parallel, splitting frames into contiguous ranges and joining
