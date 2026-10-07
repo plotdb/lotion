@@ -1,3 +1,16 @@
+## v0.2.0
+
+ - breaking:
+   - remove audio generators ( `audio/`, `lotion bgm | sfx | mix | beats` ); the commands now only print a notice.
+     they moved to the authoring toolkit `@plotdb/lotitor` ( not public yet )
+   - move `prompt/explainer.md` and `prompt/ui-loop.md` to `@plotdb/lotitor`
+ - features:
+   - `prompt/lotion.md`: how to write a lotion animation, independent of form and style
+     ( split from `prompt/explainer.md` )
+ - tweaks:
+   - cli: when `playwright` is missing, print how to install it instead of a node stack trace
+
+
 ## v0.1.0
 
  - features:
