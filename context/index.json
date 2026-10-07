@@ -1,3 +1,4 @@
 {
-  "system": "check path 'context/shared' for context info (from github:plotdb/guides)"
+  "system": "check path 'context/shared' for context info (from github:plotdb/guides)",
+  "animation": "寫 lotion 動畫先讀 prompt/lotion.md; 特定形式 ( 解說、UI loop ) 與風格庫在 @plotdb/lotitor ( private, 本機若有則在 ../lotitor )"
 }

@@ -7,7 +7,7 @@
 #  lotion video  <src> <out.mp4>            輸出影片 ( 需要 ffmpeg )
 #  lotion cues   <src> <out.json>           匯出 window.cues() 的結果 ( 音效時間點 )
 #  lotion bundle <base-url> <block> <out>   以 @plotdb/block 的 manager.bundle 把 block 與其依賴打包成單一檔案
-#  lotion bgm | sfx | mix | beats ...        音訊工具, 轉交給 audio/*.py ( 需 python3 + numpy, ffmpeg ). 加 -h 看說明
+#  lotion bgm | sfx | mix | beats           已移除 ( 移到尚未公開的 @plotdb/lotitor ), 這裡只提示
 #
 #  <src> 可以是 http(s) 網址, 或本地的 html 檔 / 目錄 ( 會以內建的靜態 server 提供 ).
 #  選項:
@@ -25,7 +25,7 @@ usage = '''
   usage:
     lotion <frames|sheet|video|cues> <src> <out> [t...] [options]
     lotion bundle <base-url> <block-name> <out> [options]
-    lotion <bgm|sfx|mix|beats> ... ( -h for help )
+    audio generators ( bgm | sfx | mix | beats ) were removed, see README > Audio
   see README for options.
 '''
 
@@ -180,20 +180,16 @@ bundle = (base, name, out, opt) ->
         console.log "#out ( #{code.length} bytes )"
       .finally -> browser.close!
 
-# 音訊工具: 直接把參數轉交給對應的 python script
-#  audio/ 的位置: 發佈版 ( fedep publish 把 dist/ 攤平到根目錄 ) 與 cli.js 同層; repo 內則在 dist/ 的上一層
-audio-dir = ->
-  [path.join(__dirname, 'audio'), path.join(__dirname, '..', 'audio')].find (d) -> fs.existsSync d
-audio = (cmd, args) -> new Promise (res, rej) ->
-  if !(d = audio-dir!) => return rej new Error("audio scripts not found")
-  f = path.join d, "#cmd.py"
-  py = child_process.spawn (process.env.PYTHON or \python3), [f] ++ args, {stdio: \inherit}
-  py.on \error, rej
-  py.on \close, (c) -> if c => rej new Error("#cmd.py exited with #c") else res!
+# 音訊產生器已移到 @plotdb/lotitor ( 尚未公開 ); 保留指令名稱, 只提示. 沒有 lotitor 也能以 cues 對齊任何音訊工具
+moved = (cmd) ->
+  console.error """
+    lotion #cmd: audio generators are no longer part of lotion ( moved to @plotdb/lotitor, not public yet ).
+    to align any audio with the animation, export cue times with `lotion cues <src> cues.json`. see README > Audio.
+  """
+  process.exit 1
 
 argv = process.argv.slice(2)
-if argv.0 in <[bgm sfx mix beats]>
-  audio(argv.0, argv.slice(1)).catch (e) -> console.error e.message; process.exit 1
+if argv.0 in <[bgm sfx mix beats]> => moved argv.0
 else
   {pos, opt} = parse argv
   [cmd, src, out, ...rest] = pos

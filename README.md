@@ -8,8 +8,11 @@ play, scrub, embed, or render them frame by frame into video.
  - block player ( `dist/block/player.js` ): package an animation as a `@plotdb/block` and embed it anywhere.
  - cli ( `lotion` ): render any page following the render protocol into png frames, contact sheets or mp4,
    and bundle blocks.
- - audio tools ( `audio/` ): beat detection, ui sound effects, a simple bassline bgm synthesizer and a cue mixer.
- - prompts ( `prompt/` ): workflow notes for producing motion designs and explainer animations with an AI agent.
+ - prompt ( `prompt/lotion.md` ): how to write a lotion animation correctly, for people and AI agents.
+
+lotion is self-contained for writing, playing and rendering animations. Authoring aids ( guides for specific forms,
+a style library, asset and audio generation ) are kept in a separate toolkit, `@plotdb/lotitor`, which is not public
+yet; nothing in lotion depends on it.
 
 
 ## Install
@@ -125,7 +128,7 @@ targets under the root ( or use `:scope` ). A block sample is in `web/src/pug/bl
     lotion video  <src> <out.mp4>            render to mp4
     lotion cues   <src> <out.json>           dump window.cues()
     lotion bundle <base-url> <block> <out>   pack a block and its dependencies into one file
-    lotion bgm | sfx | mix | beats ...       audio tools, see below
+    lotion bgm | sfx | mix | beats           removed, see Audio
 
 `<src>` is an http(s) url, or a local html file / directory served by a built-in static server.
 
@@ -143,36 +146,21 @@ options:
 
 ## Audio
 
-Each command forwards its arguments to the python script of the same name in `audio/`; pass `-h` for all options.
-All times are aligned so that `t = 0` matches the start of the animation.
+The audio generators ( `bgm`, `sfx`, `mix`, `beats` ) are no longer part of lotion; `lotion bgm ...` and the like
+only print a notice. Sound stays aligned through cues: the page's `cues()` lists `[{t, ...}]`, `lotion cues` exports
+it, and any audio tool can place sounds at those times. Then add the track to the rendered video:
 
- - `lotion bgm out.wav --bpm 120 --bars 16 --key A --scale minor --prog 1,6,3,7 --bass drive --drums four --pad`:
-   synthesize a track around a repeating bassline. bass presets: `pulse`, `octave`, `house`, `drive`, `walk`,
-   or 16 custom steps ( semitones from the chord root, `.` rest, `-` hold ). drum presets: `four`, `half`, `broken`,
-   `none`. `--loop` makes it loop seamlessly; `--grid grid.json` writes its beat grid.
- - `lotion beats music.mp3 --start 64.11 --dur 30 --out grid.json`: estimate bpm and the beat grid
-   ( `{bpm, offset, beats, downbeats}` ). with an off-beat bassline and syncopated kicks the grid may be half a beat
-   off; correct it with `--shift 0.5`.
- - `lotion sfx sfx/`: synthesize ui sound effects ( click, tick, scrub, pop, toggle, success, notify, type, whoosh )
-   and measure each transient peak into `sfx/peaks.json`.
- - `lotion mix cues.json out.wav --dur 30 --music bgm.wav --sfx sfx/ [--loop | --fade 2]`: mix music with sound
-   effects placed at cue times ( `[{t, sfx, gain}]`, e.g. from `lotion cues` ), aligning each effect's measured
-   peak rather than its file start.
-
-A typical flow:
-
-    lotion bgm bgm.wav --bpm 120 --bars 16 --grid grid.json   # time the animation on this grid
-    lotion sfx sfx/
     lotion cues page.html cues.json
-    lotion mix cues.json audio.wav --dur 32 --music bgm.wav --sfx sfx/ --fade 2
     lotion video page.html silent.mp4
     ffmpeg -i silent.mp4 -i audio.wav -c:v copy -c:a aac -shortest out.mp4
 
 
 ## Prompts
 
- - `prompt/ui-loop.md`: a phased workflow for short, looping, single-object UI motion with music.
- - `prompt/explainer.md`: practices for longer explainer animations, embedding them into pages, and common pitfalls.
+ - `prompt/lotion.md`: writing `seek(t)`, embedding into pages, block packaging, and common pitfalls.
+
+Guides for specific forms ( explainers, UI loops ) and for choosing a style moved to the authoring toolkit
+`@plotdb/lotitor` ( not public yet ). `prompt/lotion.md` covers everything needed to write a lotion animation.
 
 
 ## Development

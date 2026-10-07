@@ -1,10 +1,10 @@
 #!/usr/bin/env node
-var fs, path, http, child_process, usage, parse, types, serve, playwright, open, shot, frames, sheet, video, cues, bundle, audioDir, audio, argv, ref$, pos, opt, cmd, src, out, rest, times, p, slice$ = [].slice;
+var fs, path, http, child_process, usage, parse, types, serve, playwright, open, shot, frames, sheet, video, cues, bundle, moved, argv, ref$, pos, opt, cmd, src, out, rest, times, p, slice$ = [].slice;
 fs = require('fs');
 path = require('path');
 http = require('http');
 child_process = require('child_process');
-usage = 'usage:\n  lotion <frames|sheet|video|cues> <src> <out> [t...] [options]\n  lotion bundle <base-url> <block-name> <out> [options]\n  lotion <bgm|sfx|mix|beats> ... ( -h for help )\nsee README for options.';
+usage = 'usage:\n  lotion <frames|sheet|video|cues> <src> <out> [t...] [options]\n  lotion bundle <base-url> <block-name> <out> [options]\n  audio generators ( bgm | sfx | mix | beats ) were removed, see README > Audio\nsee README for options.';
 parse = function(argv){
   var ref$, pos, opt, i, a;
   ref$ = [[], {}], pos = ref$[0], opt = ref$[1];
@@ -335,37 +335,13 @@ bundle = function(base, name, out, opt){
     });
   });
 };
-audioDir = function(){
-  return [path.join(__dirname, 'audio'), path.join(__dirname, '..', 'audio')].find(function(d){
-    return fs.existsSync(d);
-  });
-};
-audio = function(cmd, args){
-  return new Promise(function(res, rej){
-    var d, f, py;
-    if (!(d = audioDir())) {
-      return rej(new Error("audio scripts not found"));
-    }
-    f = path.join(d, cmd + ".py");
-    py = child_process.spawn(process.env.PYTHON || 'python3', [f].concat(args), {
-      stdio: 'inherit'
-    });
-    py.on('error', rej);
-    return py.on('close', function(c){
-      if (c) {
-        return rej(new Error(cmd + ".py exited with " + c));
-      } else {
-        return res();
-      }
-    });
-  });
+moved = function(cmd){
+  console.error("lotion " + cmd + ": audio generators are no longer part of lotion ( moved to @plotdb/lotitor, not public yet ).\nto align any audio with the animation, export cue times with `lotion cues <src> cues.json`. see README > Audio.");
+  return process.exit(1);
 };
 argv = process.argv.slice(2);
 if ((ref$ = argv[0]) === 'bgm' || ref$ === 'sfx' || ref$ === 'mix' || ref$ === 'beats') {
-  audio(argv[0], argv.slice(1))['catch'](function(e){
-    console.error(e.message);
-    return process.exit(1);
-  });
+  moved(argv[0]);
 } else {
   ref$ = parse(argv), pos = ref$.pos, opt = ref$.opt;
   cmd = pos[0], src = pos[1], out = pos[2], rest = slice$.call(pos, 3);

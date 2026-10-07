@@ -11,7 +11,6 @@
   },
   "files": [
     "dist/**/*",
-    "audio/**/*.py",
     "prompt/**/*"
   ],
   "homepage": "https://github.com/plotdb/lotion",

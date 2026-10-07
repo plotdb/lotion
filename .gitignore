@@ -6,3 +6,4 @@ web/static/assets/lib
 *.log
 __pycache__
 .env
+.DS_Store
