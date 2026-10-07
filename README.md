@@ -173,6 +173,14 @@ the packed block demo is generated from the running dev server:
     node dist/cli.js bundle http://localhost:<port> lotion-demo web/static/block/lotion-demo.bundle.html
 
 
+## Credits
+
+Releases up to v0.1.0 included `prompt/ui-loop.md`, derived from a prompt template posted by zero
+( [@twoclipping](https://x.com/twoclipping) ) on X on 2026-09-25: https://x.com/twoclipping/status/2103273003555402193 .
+The post says "im open sourcing the prompt template for these motion designs" but attaches no explicit license, so that
+file was never covered by lotion's MIT license; rights remain with the author. It is no longer part of lotion.
+
+
 ## License
 
 MIT
