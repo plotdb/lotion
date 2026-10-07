@@ -13,6 +13,7 @@
 #  選項:
 #   --width 1920 --height 1080   視窗尺寸
 #   --fps 60 --sub 1 --shutter 0.5   影片設定. sub > 1 時每格取 sub 個子樣本以 ffmpeg tmix 平均成 motion blur
+#   --workers 1                  video 以 N 個瀏覽器平行渲染 ( 影格切成連續片段, 最後串接, 不重新編碼 )
 #   --from 0 --to <duration>     只輸出一段 ( 秒 )
 #   --crf 16                     x264 品質
 #   --cols 3 --tile 640          contact sheet 的欄數與每格寬度
@@ -116,36 +117,64 @@ sheet = (src, out, times, opt) ->
         fs.rmSync tmp, {recursive: true, force: true}
         if c => rej new Error("ffmpeg exited with #c") else res!
 
+WARM = 3
+# 以 ffmpeg 編碼第 i0 ~ i1 格 ( 不含 i1 ). 每格取 sub 個子樣本, 以 tmix 平均成 motion blur
+encode = (page, i0, i1, out, o, tick) ->
+  {fps, sub, shutter, from} = o
+  d = shutter / fps / sub
+  # 子樣本依序送入; tmix 平均連續 sub 張, select 取每組最後一張 -> 恰為該格 sub 個樣本的平均
+  vf = if sub > 1 => ['-vf', "tmix=frames=#sub,select='eq(mod(n\\,#sub)\\,#{sub - 1})',setpts=N/#fps/TB"] else []
+  ff = child_process.spawn \ffmpeg, [
+    '-y', '-v', 'error', '-f', 'image2pipe', '-framerate', "#{fps * sub}", '-i', '-'
+  ] ++ vf ++ [
+    '-r', "#fps", '-c:v', 'libx264', '-preset', 'slow', '-crf', "#{o.crf}"
+    '-pix_fmt', 'yuv420p', '-movflags', '+faststart', out
+  ], {stdio: ['pipe', 'inherit', 'inherit']}
+  write = (buf) -> new Promise (res) -> if ff.stdin.write(buf) => res! else ff.stdin.once \drain, res
+  step = (i, j) ->
+    if i >= i1 => return Promise.resolve!
+    if j >= sub => tick!; return step i + 1, 0
+    t = Math.max 0, from + i / fps + (if sub > 1 => (j - (sub - 1) / 2) * d else 0)
+    shot(page, t).then(write).then -> step i, j + 1
+  # 暖機: 片段開頭先渲染前 WARM 格並丟棄. 剛開的頁面直接跳到某一格時, 頭兩格的點陣化會和連續播放時略有不同
+  # ( 實測差異只在片段開頭兩格, PSNR 約 86 dB ), 先走過前幾格就與單一 worker 逐格一致.
+  warm = [Math.max(0, i0 - WARM) til i0].reduce ((p, i) -> p.then -> shot page, Math.max(0, from + i / fps)), Promise.resolve!
+  warm.then -> step i0, 0
+    .then -> new Promise (res, rej) ->
+      ff.on \close, (c) -> if c => rej new Error("ffmpeg exited with #c") else res!
+      ff.stdin.end!
+
+# --workers N: 畫面是 t 的純函數, 任一格都能獨立算出, 所以把影格切成 N 段連續範圍,
+# 各開一個瀏覽器同時渲染、各自編碼, 最後以 concat 串接 ( 不重新編碼 ). 每段從整數格開始, sub 的分組不會被切斷.
 video = (src, out, opt) ->
-  fps = +(opt.fps or 60)
-  sub = +(opt.sub or 1)
-  shutter = +(opt.shutter or 0.5)
-  open(src, opt).then ({page, duration, close}) ->
-    from = +(opt.from or 0)
-    to = +(opt.to or duration)
-    n = Math.round((to - from) * fps)
-    d = shutter / fps / sub
-    # 子樣本依序送入; tmix 平均連續 sub 張, select 取每組最後一張 -> 恰為該格 sub 個樣本的平均
-    vf = if sub > 1 => ['-vf', "tmix=frames=#sub,select='eq(mod(n\\,#sub)\\,#{sub - 1})',setpts=N/#fps/TB"] else []
-    ff = child_process.spawn \ffmpeg, [
-      '-y', '-v', 'error', '-f', 'image2pipe', '-framerate', "#{fps * sub}", '-i', '-'
-    ] ++ vf ++ [
-      '-r', "#fps", '-c:v', 'libx264', '-preset', 'slow', '-crf', "#{opt.crf or 16}"
-      '-pix_fmt', 'yuv420p', '-movflags', '+faststart', out
-    ], {stdio: ['pipe', 'inherit', 'inherit']}
-    t0 = Date.now!
-    write = (buf) -> new Promise (res) -> if ff.stdin.write(buf) => res! else ff.stdin.once \drain, res
-    step = (i, j) ->
-      if i >= n => return Promise.resolve!
-      if j >= sub =>
-        if i % 300 == 0 => console.log "frame #i/#n #{((Date.now! - t0) / 1000).toFixed(0)}s"
-        return step i + 1, 0
-      t = Math.max 0, from + i / fps + (if sub > 1 => (j - (sub - 1) / 2) * d else 0)
-      shot(page, t).then(write).then -> step i, j + 1
-    step 0, 0
-      .then -> new Promise (res) -> ff.on(\close, res); ff.stdin.end!
-      .then -> close!
-      .then -> console.log "#out ( #{n} frames, #{((Date.now! - t0) / 1000).toFixed(0)}s )"
+  o = {fps: +(opt.fps or 60), sub: +(opt.sub or 1), shutter: +(opt.shutter or 0.5), crf: (opt.crf or 16)}
+  workers = Math.max 1, Math.floor(+(opt.workers or 1))
+  t0 = Date.now!
+  open(src, opt).then (first) ->
+    o.from = +(opt.from or 0)
+    n = Math.round((+(opt.to or first.duration) - o.from) * o.fps)
+    done = 0
+    tick = -> if ++done % 300 == 0 => console.log "frame #done/#n #{((Date.now! - t0) / 1000).toFixed(0)}s"
+    console.log "frame 0/#n 0s" + (if workers > 1 => " ( #workers workers )" else '')
+    finish = -> console.log "#out ( #n frames, #{((Date.now! - t0) / 1000).toFixed(0)}s )"
+    if workers == 1 => return encode(first.page, 0, n, out, o, tick).then(-> first.close!).then finish
+    k = Math.min workers, n
+    tmp = fs.mkdtempSync path.join(require(\os).tmpdir!, 'lotion-')
+    parts = [0 til k].map (w) -> {i0: Math.floor(n * w / k), i1: Math.floor(n * (w + 1) / k), out: path.join(tmp, "part-#w.mp4")}
+    Promise.all([Promise.resolve(first)] ++ [1 til k].map(-> open src, opt))
+      .then (pages) ->
+        Promise.all(parts.map (p, w) -> encode(pages[w].page, p.i0, p.i1, p.out, o, tick))
+          .finally -> Promise.all pages.map (p) -> p.close!
+      .then ->
+        list = path.join tmp, 'list.txt'
+        fs.writeFileSync list, parts.map((p) -> "file '#{p.out}'").join('\n')
+        new Promise (res, rej) ->
+          ff = child_process.spawn \ffmpeg, [
+            '-y', '-v', 'error', '-f', 'concat', '-safe', '0', '-i', list, '-c', 'copy', '-movflags', '+faststart', out
+          ], {stdio: \inherit}
+          ff.on \close, (c) -> if c => rej new Error("ffmpeg concat exited with #c") else res!
+      .finally -> fs.rmSync tmp, {recursive: true, force: true}
+      .then finish
 
 cues = (src, out, opt) ->
   open(src, opt).then ({page, close}) ->

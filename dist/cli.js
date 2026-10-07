@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-var fs, path, http, child_process, usage, parse, types, serve, playwright, open, shot, frames, sheet, video, cues, bundle, moved, argv, ref$, pos, opt, cmd, src, out, rest, times, p, slice$ = [].slice;
+var fs, path, http, child_process, usage, parse, types, serve, playwright, open, shot, frames, sheet, WARM, encode, video, cues, bundle, moved, argv, ref$, pos, opt, cmd, src, out, rest, times, p, slice$ = [].slice;
 fs = require('fs');
 path = require('path');
 http = require('http');
@@ -198,60 +198,151 @@ sheet = function(src, out, times, opt){
     });
   });
 };
-video = function(src, out, opt){
-  var fps, sub, shutter;
-  fps = +(opt.fps || 60);
-  sub = +(opt.sub || 1);
-  shutter = +(opt.shutter || 0.5);
-  return open(src, opt).then(function(arg$){
-    var page, duration, close, from, to, n, d, vf, ff, t0, write, step;
-    page = arg$.page, duration = arg$.duration, close = arg$.close;
-    from = +(opt.from || 0);
-    to = +(opt.to || duration);
-    n = Math.round((to - from) * fps);
-    d = shutter / fps / sub;
-    vf = sub > 1
-      ? ['-vf', "tmix=frames=" + sub + ",select='eq(mod(n\\," + sub + ")\\," + (sub - 1) + ")',setpts=N/" + fps + "/TB"]
-      : [];
-    ff = child_process.spawn('ffmpeg', ['-y', '-v', 'error', '-f', 'image2pipe', '-framerate', fps * sub + "", '-i', '-'].concat(vf, ['-r', fps + "", '-c:v', 'libx264', '-preset', 'slow', '-crf', (opt.crf || 16) + "", '-pix_fmt', 'yuv420p', '-movflags', '+faststart', out]), {
-      stdio: ['pipe', 'inherit', 'inherit']
+WARM = 3;
+encode = function(page, i0, i1, out, o, tick){
+  var fps, sub, shutter, from, d, vf, ff, write, step, warm;
+  fps = o.fps, sub = o.sub, shutter = o.shutter, from = o.from;
+  d = shutter / fps / sub;
+  vf = sub > 1
+    ? ['-vf', "tmix=frames=" + sub + ",select='eq(mod(n\\," + sub + ")\\," + (sub - 1) + ")',setpts=N/" + fps + "/TB"]
+    : [];
+  ff = child_process.spawn('ffmpeg', ['-y', '-v', 'error', '-f', 'image2pipe', '-framerate', fps * sub + "", '-i', '-'].concat(vf, ['-r', fps + "", '-c:v', 'libx264', '-preset', 'slow', '-crf', o.crf + "", '-pix_fmt', 'yuv420p', '-movflags', '+faststart', out]), {
+    stdio: ['pipe', 'inherit', 'inherit']
+  });
+  write = function(buf){
+    return new Promise(function(res){
+      if (ff.stdin.write(buf)) {
+        return res();
+      } else {
+        return ff.stdin.once('drain', res);
+      }
     });
-    t0 = Date.now();
-    write = function(buf){
-      return new Promise(function(res){
-        if (ff.stdin.write(buf)) {
-          return res();
+  };
+  step = function(i, j){
+    var t;
+    if (i >= i1) {
+      return Promise.resolve();
+    }
+    if (j >= sub) {
+      tick();
+      return step(i + 1, 0);
+    }
+    t = Math.max(0, from + i / fps + (sub > 1 ? (j - (sub - 1) / 2) * d : 0));
+    return shot(page, t).then(write).then(function(){
+      return step(i, j + 1);
+    });
+  };
+  warm = (function(){
+    var i$, to$, results$ = [];
+    for (i$ = Math.max(0, i0 - WARM), to$ = i0; i$ < to$; ++i$) {
+      results$.push(i$);
+    }
+    return results$;
+  }()).reduce(function(p, i){
+    return p.then(function(){
+      return shot(page, Math.max(0, from + i / fps));
+    });
+  }, Promise.resolve());
+  return warm.then(function(){
+    return step(i0, 0);
+  }).then(function(){
+    return new Promise(function(res, rej){
+      ff.on('close', function(c){
+        if (c) {
+          return rej(new Error("ffmpeg exited with " + c));
         } else {
-          return ff.stdin.once('drain', res);
+          return res();
         }
       });
-    };
-    step = function(i, j){
-      var t;
-      if (i >= n) {
-        return Promise.resolve();
-      }
-      if (j >= sub) {
-        if (i % 300 === 0) {
-          console.log("frame " + i + "/" + n + " " + ((Date.now() - t0) / 1000).toFixed(0) + "s");
-        }
-        return step(i + 1, 0);
-      }
-      t = Math.max(0, from + i / fps + (sub > 1 ? (j - (sub - 1) / 2) * d : 0));
-      return shot(page, t).then(write).then(function(){
-        return step(i, j + 1);
-      });
-    };
-    return step(0, 0).then(function(){
-      return new Promise(function(res){
-        ff.on('close', res);
-        return ff.stdin.end();
-      });
-    }).then(function(){
-      return close();
-    }).then(function(){
-      return console.log(out + " ( " + n + " frames, " + ((Date.now() - t0) / 1000).toFixed(0) + "s )");
+      return ff.stdin.end();
     });
+  });
+};
+video = function(src, out, opt){
+  var o, workers, t0;
+  o = {
+    fps: +(opt.fps || 60),
+    sub: +(opt.sub || 1),
+    shutter: +(opt.shutter || 0.5),
+    crf: opt.crf || 16
+  };
+  workers = Math.max(1, Math.floor(+(opt.workers || 1)));
+  t0 = Date.now();
+  return open(src, opt).then(function(first){
+    var n, done, tick, finish, k, tmp, parts;
+    o.from = +(opt.from || 0);
+    n = Math.round((+(opt.to || first.duration) - o.from) * o.fps);
+    done = 0;
+    tick = function(){
+      if (++done % 300 === 0) {
+        return console.log("frame " + done + "/" + n + " " + ((Date.now() - t0) / 1000).toFixed(0) + "s");
+      }
+    };
+    console.log(("frame 0/" + n + " 0s") + (workers > 1 ? " ( " + workers + " workers )" : ''));
+    finish = function(){
+      return console.log(out + " ( " + n + " frames, " + ((Date.now() - t0) / 1000).toFixed(0) + "s )");
+    };
+    if (workers === 1) {
+      return encode(first.page, 0, n, out, o, tick).then(function(){
+        return first.close();
+      }).then(finish);
+    }
+    k = Math.min(workers, n);
+    tmp = fs.mkdtempSync(path.join(require('os').tmpdir(), 'lotion-'));
+    parts = (function(){
+      var i$, to$, results$ = [];
+      for (i$ = 0, to$ = k; i$ < to$; ++i$) {
+        results$.push(i$);
+      }
+      return results$;
+    }()).map(function(w){
+      return {
+        i0: Math.floor(n * w / k),
+        i1: Math.floor(n * (w + 1) / k),
+        out: path.join(tmp, "part-" + w + ".mp4")
+      };
+    });
+    return Promise.all([Promise.resolve(first)].concat((function(){
+      var i$, to$, results$ = [];
+      for (i$ = 1, to$ = k; i$ < to$; ++i$) {
+        results$.push(i$);
+      }
+      return results$;
+    }()).map(function(){
+      return open(src, opt);
+    }))).then(function(pages){
+      return Promise.all(parts.map(function(p, w){
+        return encode(pages[w].page, p.i0, p.i1, p.out, o, tick);
+      }))['finally'](function(){
+        return Promise.all(pages.map(function(p){
+          return p.close();
+        }));
+      });
+    }).then(function(){
+      var list;
+      list = path.join(tmp, 'list.txt');
+      fs.writeFileSync(list, parts.map(function(p){
+        return "file '" + p.out + "'";
+      }).join('\n'));
+      return new Promise(function(res, rej){
+        var ff;
+        ff = child_process.spawn('ffmpeg', ['-y', '-v', 'error', '-f', 'concat', '-safe', '0', '-i', list, '-c', 'copy', '-movflags', '+faststart', out], {
+          stdio: 'inherit'
+        });
+        return ff.on('close', function(c){
+          if (c) {
+            return rej(new Error("ffmpeg concat exited with " + c));
+          } else {
+            return res();
+          }
+        });
+      });
+    })['finally'](function(){
+      return fs.rmSync(tmp, {
+        recursive: true,
+        force: true
+      });
+    }).then(finish);
   });
 };
 cues = function(src, out, opt){

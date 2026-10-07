@@ -1,3 +1,12 @@
+## master
+
+ - features:
+   - cli: `video --workers N` renders with N browsers in parallel, splitting frames into contiguous ranges and joining
+     the encoded parts without re-encoding. each part first renders the 3 preceding frames and discards them, since a
+     freshly opened page that jumps straight to a frame rasterizes its first frames slightly differently; with this the
+     output matches a single worker frame for frame. about 2.7x faster with 4 workers on an 8-core ( 4 performance ) mac.
+
+
 ## v0.2.0
 
  - breaking:

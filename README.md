@@ -137,6 +137,8 @@ options:
  - `--width 1920 --height 1080`: viewport size.
  - `--fps 60`, `--sub 1`, `--shutter 0.5`: video settings. with `--sub` greater than 1, each frame averages
    `sub` sub-samples spread over `shutter` of the frame interval ( motion blur, via ffmpeg `tmix` ).
+ - `--workers 1`: render a video with N browsers in parallel. frames are split into contiguous ranges, each encoded on
+   its own, then joined without re-encoding. since every frame depends on `t` only, the result matches a single worker.
  - `--from`, `--to`: render only a range, in seconds.
  - `--crf 16`: x264 quality.
  - `--cols 3`, `--tile 640`: contact sheet layout.
