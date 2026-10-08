@@ -1,0 +1,44 @@
+doctype html
+html(lang="zh-Hant-TW")
+  head
+    meta(charset="utf-8")
+    meta(name="viewport",content="width=device-width,initial-scale=1")
+    title lotion vector
+    link(rel="preconnect",href="https://fonts.gstatic.com")
+    +css([
+      {url: "https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Noto+Sans+TC:wght@400;500;700&display=swap"},
+      {name: "lotion", version: "dev", path: "index.css"}
+    ])
+    style(type="text/css")
+      include:stylus ../index.styl
+      include:stylus ../scene.styl
+      include:stylus viewer.styl
+  body
+    .wrap.v-wide
+      h1 lotion vector
+      p.
+        左邊是動畫本身 ( DOM )，右邊是同一格以 <code>lotion.vector</code> 轉出的 svg ( satori )。
+        拖曳時間軸、跳段或播放時會重新轉換。
+      .v-panes
+        .v-pane
+          .v-label DOM
+          #demo.demo
+        .v-pane#viewer
+          .v-label SVG
+          .v-box: img.v-img
+          .v-bar
+            span.v-stat 轉換中…
+            label
+              input.v-auto(type="checkbox",checked)
+              | 自動轉換
+            button.v-dl 下載 svg
+            button.v-open 新分頁開啟
+          ul.v-warn
+      p.hint 第一次轉換需要載入 satori、字型解壓與 HarfBuzz，會慢一些。svg 中的文字已轉成 path，字型不需另外安裝。
+    +script([{name: "lotion", version: "dev", path: "index.js", defer: false}, {name: "lotion", version: "dev", path: "vector.js", defer: false}])
+    script(type="text/javascript")
+      include:lsc ../scene.ls
+      include:lsc viewer.ls
+    script(type="text/javascript"): :lsc
+      p = scene window.lotion, document.querySelector('#demo')
+      viewer p, document.querySelector('#viewer')

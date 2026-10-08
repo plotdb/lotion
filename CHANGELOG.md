@@ -4,6 +4,13 @@
    - `player.encode(opt)` / `lotion.encode(opt)`: render to mp4 in the browser ( snapdom capture, WebCodecs encode via
      mediabunny ), both libraries loaded on demand by dynamic `import()`; urls configurable in `lotion.libs`
    - demo: export button
+   - `dist/vector.js` ( experimental ): `lotion.vector(el)` / `player.vector(t)` convert the current frame to a vector svg
+     with satori. layout is taken from the browser and each element becomes an absolutely positioned node; web fonts
+     are collected from `@font-face` by the characters in use, woff2 decompressed, subset with HarfBuzz and variable
+     fonts pinned to the used weight. root-level `mix-blend-mode` is composed as svg layers; inline svg is embedded
+     with its computed styles, referenced external defs and fonts.
+   - `lotion.lib(name)`: load an on-demand dependency listed in `lotion.libs`
+   - demo: `/vector/` compares the player with its converted svg side by side
 
 
 ## v0.2.1

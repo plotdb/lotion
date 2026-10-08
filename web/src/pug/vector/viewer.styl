@@ -1,0 +1,43 @@
+.wrap.v-wide
+  max-width: 1600px
+.v-panes
+  display: grid
+  grid-template-columns: 1fr 1fr
+  gap: 16px
+  align-items: start
+  @media (max-width: 900px)
+    grid-template-columns: 1fr
+.v-label
+  font-size: 13px
+  font-weight: 600
+  color: #8A877F
+  margin-bottom: 6px
+.v-box
+  border: 1px solid #D9D6CF
+  border-radius: 12px
+  overflow: hidden
+  aspect-ratio: 16 / 9
+  background: repeating-conic-gradient(#f3f2ee 0% 25%, #fff 0% 50%) 0 0 / 16px 16px
+  img
+    display: block
+    width: 100%
+    height: 100%
+.v-bar
+  display: flex
+  flex-wrap: wrap
+  align-items: center
+  gap: 10px
+  margin-top: 10px
+  font-size: 14px
+  .v-stat
+    flex: 1
+    font-variant-numeric: tabular-nums
+.v-warn
+  margin: 8px 0 0
+  padding-left: 20px
+  font-size: 13px
+  color: #a5571c
+  .ok
+    color: #8A877F
+    list-style: none
+    margin-left: -20px

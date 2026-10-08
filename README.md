@@ -119,6 +119,35 @@ DOM, not by resolution: the 17 seconds demo at 1080p30 takes about 46 seconds in
 final renders, the cli remains faster ( `--workers` ) and exact.
 
 
+## Vector ( experimental )
+
+`dist/vector.js` converts the current frame into a vector svg with [satori](https://github.com/vercel/satori):
+
+    <script src="index.min.js"></script>
+    <script src="vector.min.js"></script>
+
+    lotion.vector(el).then ({svg, warnings}) -> ...
+    player.vector(t).then ({svg, warnings}) -> ...   # the frame at t, without moving the player
+
+ - layout is read from the browser ( `offsetLeft` / `offsetWidth` ... ) and every element becomes an absolutely
+   positioned satori node with its computed style; text becomes paths.
+ - fonts are collected from the page's `@font-face` rules by the families, weights and characters in use, following
+   `font-family` fallbacks and `unicode-range`. woff2 is decompressed ( woff2-encoder ), then each font is subset with
+   HarfBuzz, which also pins variable fonts ( as served by Google Fonts ) to the weight in use; satori would otherwise
+   draw only their default instance. Pass `opt.fonts` to provide fonts yourself.
+ - `mix-blend-mode` on children of the root is kept by converting the children in layers and stacking them with
+   svg `mix-blend-mode` ( honored by browsers, not by every svg viewer ).
+ - inline `<svg>` is embedded as an svg image with its computed styles, the external definitions it references and
+   the fonts its text needs. `<img>` and `<canvas>` are embedded as raster images.
+ - satori, woff2-encoder and the HarfBuzz subsetter ( wasm ) are loaded on demand; urls are in `lotion.libs`.
+ - what may differ is listed in `warnings`: blend on nested elements, text mixed with elements, characters without a
+   web font ( system fonts are not available ), mask or clip-path under a transform other than a translation
+   ( satori does not move masks with transforms ).
+
+On the demo and the sumi-ink trial of lotitor, frames rasterized from the svg match screenshots at 29 - 39 dB PSNR;
+the remaining difference is mostly text antialiasing and baselines in fixed line-heights. A frame takes 50 - 300 ms.
+
+
 ## Render protocol
 
 With `?render` in the url, a page should cover the viewport with its stage and expose:

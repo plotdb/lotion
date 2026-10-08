@@ -7,6 +7,9 @@ mkdir -p dist
 echo "build src/index.ls -> dist/index.js ..."
 $bin/lsc -cp --no-header src/index.ls > dist/index.js
 $bin/uglifyjs dist/index.js -m -c > dist/index.min.js
+echo "build src/vector.ls -> dist/vector.js ..."
+$bin/lsc -cp --no-header src/vector.ls > dist/vector.js
+$bin/uglifyjs dist/vector.js -m -c > dist/vector.min.js
 echo "build src/index.styl -> dist/index.css ..."
 $bin/stylus -p src/index.styl > dist/index.css
 $bin/stylus -p -c src/index.styl > dist/index.min.css

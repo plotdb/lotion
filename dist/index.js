@@ -1,5 +1,5 @@
 (function(){
-  var PI, sin, cos, exp, sqrt, round, clamp, lerp, ss, spring, presets, track, vis, bump, typing, hex, mixc, rgb, mk, put, txt, NS, svg, player, ref$, libs, libCache, loadLib, encode, lotion;
+  var PI, sin, cos, exp, sqrt, round, clamp, lerp, ss, spring, presets, track, vis, bump, typing, hex, mixc, rgb, mk, put, txt, NS, svg, player, ref$, libs, libCache, lib, encode, lotion;
   PI = Math.PI, sin = Math.sin, cos = Math.cos, exp = Math.exp, sqrt = Math.sqrt, round = Math.round;
   clamp = function(v, a, b){
     a == null && (a = 0);
@@ -462,7 +462,7 @@
     mediabunny: 'https://cdn.jsdelivr.net/npm/mediabunny@1.61.3/dist/bundles/mediabunny.min.mjs'
   };
   libCache = {};
-  loadLib = function(name){
+  lib = function(name){
     var ref$;
     return (ref$ = libCache[name]) != null
       ? ref$
@@ -500,9 +500,9 @@
     return Promise.all([
       (that = opt.snapdom)
         ? Promise.resolve(that)
-        : loadLib('snapdom'), (that = opt.mediabunny)
+        : lib('snapdom'), (that = opt.mediabunny)
         ? Promise.resolve(that)
-        : loadLib('mediabunny')
+        : lib('mediabunny')
     ]).then(function(arg$){
       var sd, mb, snap, canvas, ctx;
       sd = arg$[0], mb = arg$[1];
@@ -602,7 +602,8 @@
     svg: svg,
     player: player,
     encode: encode,
-    libs: libs
+    libs: libs,
+    lib: lib
   };
   if (typeof module != 'undefined' && module !== null) {
     module.exports = lotion;

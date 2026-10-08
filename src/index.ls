@@ -273,12 +273,13 @@ player.prototype = Object.create(Object.prototype) <<<
 # ---------- 線上匯出 ----------
 # 在瀏覽器中逐格 seek(t), 以 snapdom 截圖, 以 WebCodecs ( 透過 mediabunny ) 編碼成 mp4.
 # 兩個函式庫只在匯出時才以 dynamic import 載入; 網址可由 lotion.libs 覆寫 ( 例如改用自架的檔案 ),
-# 或在 opt.snapdom / opt.mediabunny 直接傳入已載入的模組.
+# 或在 opt.snapdom / opt.mediabunny 直接傳入已載入的模組. lotion.lib(name) 依 lotion.libs 載入並快取,
+# 其他選用模組 ( 如 vector.js ) 也以此載入自己的依賴.
 libs =
   snapdom: 'https://cdn.jsdelivr.net/npm/@zumer/snapdom@3.3.0/dist/snapdom.mjs'
   mediabunny: 'https://cdn.jsdelivr.net/npm/mediabunny@1.61.3/dist/bundles/mediabunny.min.mjs'
 lib-cache = {}
-load-lib = (name) -> lib-cache[name] ?= ``import(libs[name])``
+lib = (name) -> lib-cache[name] ?= ``import(libs[name])``
 
 # 匯出 mp4, 回傳 Promise<Blob>. 一般透過 player.encode(opt) 使用.
 #  opt:
@@ -305,8 +306,8 @@ encode = (opt = {}) ->
   abort = -> if opt.signal and opt.signal.aborted => throw new DOMException('export aborted', \AbortError)
   output = null
   Promise.all [
-    if opt.snapdom => Promise.resolve that else load-lib(\snapdom)
-    if opt.mediabunny => Promise.resolve that else load-lib(\mediabunny)
+    if opt.snapdom => Promise.resolve that else lib(\snapdom)
+    if opt.mediabunny => Promise.resolve that else lib(\mediabunny)
   ]
     .then ([sd, mb]) ->
       snap = sd.snapdom or sd
@@ -351,7 +352,7 @@ encode = (opt = {}) ->
 
 lotion = {
   clamp, lerp, ss, spring, presets, track, vis, bump, typing
-  hex, mixc, rgb, mk, put, txt, svg, player, encode, libs
+  hex, mixc, rgb, mk, put, txt, svg, player, encode, libs, lib
 }
 
 if module? => module.exports = lotion
