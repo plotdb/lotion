@@ -1,4 +1,4 @@
-## master
+## v0.4.0
 
  - features:
    - `lotion.animate(opt)` / `player.animate(opt)` ( experimental, in `vector.js` ): convert a whole animation into one
