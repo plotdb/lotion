@@ -163,10 +163,16 @@ that plays by itself, resolving to `{svg, warnings, stats}`:
    ( coordinates, `stroke-dashoffset`, opacities ... ) written as smil `<animate>`, definitions are written once,
    and text uses fonts embedded once. nested `<svg>` becomes a group, since smil inside a nested svg does not follow
    the outer svg when paused or seeked.
+ - tracks are written once per element: positions of svg leaves join the group matrix, and inheritable values
+   ( `stroke-dashoffset`, `stroke-width`, fill / stroke opacity ) animate on the group.
+ - a css mask of one `linear-gradient` ( horizontal or vertical, `no-repeat` ) becomes an svg mask whose rect follows
+   `mask-position` / `mask-size`, so a wipe draws its content once. Other masks and clip-paths are drawn per state.
+ - a path whose `d` grows ( each one a prefix of a longer one, stroked without fill, dashes or markers ) becomes the
+   longest path revealed by a dash animation.
  - options: `fps` ( default 30 ), `from`, `to`, `loop` ( default true ), `progress`, `signal`.
 
-The demo converts in under a second into 230 KB; the code-only sumi-ink trial ( 44 s at 10 fps ) in about 2 seconds
-into 3.3 MB. Frames of the animated svg match screenshots as closely as single frames do.
+The demo converts in under a second into 230 KB ( 35 KB with brotli ); the code-only sumi-ink trial ( 44 s at 10 fps )
+in about 2 seconds into 1.5 MB ( 230 KB with brotli ). Serve it compressed, or save it as `.svgz`. Frames of the animated svg match screenshots as closely as single frames do.
 
 On the demo and the sumi-ink trial of lotitor, frames rasterized from the svg match screenshots at 29 - 39 dB PSNR;
 the remaining difference is mostly text antialiasing and baselines in fixed line-heights. A frame takes 50 - 300 ms.

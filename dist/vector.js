@@ -1,6 +1,6 @@
 (function(){
   (function(){
-    var lotion, ref$, props, skip, i$, len$, s, c, textProps, unsupported, b64Bytes, b64, svgUri, fixUri, box, svgProps, svgSrc, bakeTransform, convert, fontCache, unquote, parseRange, parseSrc, faceOf, facesInText, facesInSheet, allFaces, getFaces, loadFont, hb, getHb, WGHT, subset, clamp, weightRank, fontsFor, render, makeCtx, prepare, vector, IDENT, mul, parseMatrix, motionMatrix, svgMatrix, viewboxMatrix, blurOf, simplify, fmt, pct, SVGGROUP, SVGSTATIC, NUMATTRS, NUMPROPS, LEAFSTYLE, NUMERIC, xml, styleDiff, leaf, groupAttrs, sample, PAD, draw, attrTol, compose, animate;
+    var lotion, ref$, props, skip, i$, len$, s, c, textProps, unsupported, b64Bytes, b64, svgUri, fixUri, box, svgProps, svgSrc, bakeTransform, convert, fontCache, unquote, parseRange, parseSrc, faceOf, facesInText, facesInSheet, allFaces, getFaces, loadFont, hb, getHb, WGHT, subset, clamp, weightRank, fontsFor, render, makeCtx, prepare, vector, IDENT, mul, parseMatrix, motionMatrix, svgMatrix, viewboxMatrix, blurOf, simplify, fmt, pct, SVGGROUP, SVGSTATIC, NUMATTRS, NUMPROPS, LEAFSTYLE, POSATTRS, NUMERIC, xml, styleDiff, leaf, groupAttrs, splitTop, rgba, maskOf, sample, drawOn, PAD, draw, attrTol, compose, animate;
     lotion = window.lotion;
     ref$ = lotion.libs;
     ref$.satori = 'https://cdn.jsdelivr.net/npm/satori@0.36.0/+esm';
@@ -937,7 +937,7 @@
       return +v.toFixed(4);
     };
     pct = function(i, n){
-      return (+(100 * i / n).toFixed(4)) + "%";
+      return (+(100 * i / n).toFixed(3)) + "%";
     };
     SVGGROUP = ['g', 'a', 'switch'];
     SVGSTATIC = ['defs', 'clippath', 'mask', 'lineargradient', 'radialgradient', 'filter', 'pattern', 'symbol', 'style', 'marker', 'title', 'desc', 'metadata'];
@@ -946,6 +946,15 @@
     LEAFSTYLE = svgProps.filter(function(it){
       return !in$(it, NUMPROPS) && !(it === 'opacity' || it === 'visibility' || it === 'display');
     });
+    POSATTRS = {
+      text: ['x', 'y'],
+      rect: ['x', 'y'],
+      image: ['x', 'y'],
+      use: ['x', 'y'],
+      foreignobject: ['x', 'y'],
+      circle: ['cx', 'cy'],
+      ellipse: ['cx', 'cy']
+    };
     NUMERIC = /^\s*-?(\d+\.?\d*|\.\d+)(e-?\d+)?\s*$/;
     xml = function(e){
       return new XMLSerializer().serializeToString(e);
@@ -964,7 +973,8 @@
       return decl.join(';');
     };
     leaf = function(e, cs, ctx){
-      var c, i$, ref$, len$, k, a, v, d, f;
+      var tag, c, i$, ref$, len$, k, a, v, t, pos, p, d, f;
+      tag = e.tagName.toLowerCase();
       c = e.cloneNode(true);
       for (i$ = 0, len$ = (ref$ = ['transform', 'opacity', 'style', 'class']).length; i$ < len$; ++i$) {
         k = ref$[i$];
@@ -979,22 +989,35 @@
           c.removeAttribute(k);
         }
       }
+      t = null;
+      if (pos = POSATTRS[tag]) {
+        t = {
+          x: a[pos[0]] || 0,
+          y: a[pos[1]] || 0,
+          keys: pos
+        };
+        delete a[pos[0]];
+        delete a[pos[1]];
+      }
+      p = {};
       for (i$ = 0, len$ = (ref$ = NUMPROPS).length; i$ < len$; ++i$) {
         k = ref$[i$];
-        a[k] = parseFloat(cs.getPropertyValue(k)) || 0;
+        p[k] = parseFloat(cs.getPropertyValue(k)) || 0;
         c.removeAttribute(k);
       }
       if (d = styleDiff(e, cs)) {
         c.setAttribute('style', d);
       }
       f = null;
-      if (e.tagName.toLowerCase() === 'text') {
+      if (tag === 'text') {
         f = {};
         ctx.text(cs, e.textContent, f);
       }
       return {
         c: c,
         a: a,
+        t: t,
+        p: p,
         f: f
       };
     };
@@ -1012,6 +1035,168 @@
         ret.push("style=\"" + d.replace(/"/g, "'") + "\"");
       }
       return ret.join(' ');
+    };
+    splitTop = function(str){
+      var ref$, ret, depth, cur, i$, len$, ch;
+      ref$ = [[], 0, ''], ret = ref$[0], depth = ref$[1], cur = ref$[2];
+      for (i$ = 0, len$ = str.length; i$ < len$; ++i$) {
+        ch = str[i$];
+        if (ch === '(') {
+          depth++;
+        }
+        if (ch === ')') {
+          depth--;
+        }
+        if (ch === ',' && depth === 0) {
+          ret.push(cur.trim());
+          cur = '';
+        } else {
+          cur += ch;
+        }
+      }
+      ret.push(cur.trim());
+      return ret;
+    };
+    rgba = function(c){
+      var m, v, ref$;
+      if (!(m = /^rgba?\(([^)]*)\)$/.exec(c))) {
+        return null;
+      }
+      v = m[1].split(/[\s,\/]+/).filter(function(it){
+        return it;
+      }).map(function(it){
+        return parseFloat(it);
+      });
+      return [v[0], v[1], v[2], (ref$ = v[3]) != null ? ref$ : 1];
+    };
+    maskOf = function(cs, w, h){
+      var m, parts, angle, a, stops, i$, len$, p, c, col, ps, j$, len1$, q, sz, ref$, len, tw, th, pos, x, y, glen, offs, i, j, k, to$, x1, y1, x2, y2, grad;
+      if (!(m = /^linear-gradient\((.*)\)$/.exec(cs.maskImage))) {
+        return null;
+      }
+      if (!/^no-repeat( no-repeat)?$/.test(cs.maskRepeat)) {
+        return null;
+      }
+      parts = splitTop(m[1]);
+      angle = 180;
+      if (a = /^(-?[\d.]+)deg$/.exec(parts[0])) {
+        angle = +a[1];
+        parts.shift();
+      } else if (/^to /.test(parts[0])) {
+        angle = {
+          'to top': 0,
+          'to right': 90,
+          'to bottom': 180,
+          'to left': 270
+        }[parts[0]];
+        if (angle == null) {
+          return null;
+        }
+        parts.shift();
+      }
+      angle = (angle % 360 + 360) % 360;
+      if (angle % 90) {
+        return null;
+      }
+      stops = [];
+      for (i$ = 0, len$ = parts.length; i$ < len$; ++i$) {
+        p = parts[i$];
+        if (!(c = /^(rgba?\([^)]*\))\s*(.*)$/.exec(p))) {
+          return null;
+        }
+        col = rgba(c[1]);
+        ps = c[2].split(/\s+/).filter(fn$);
+        if (!ps.length) {
+          stops.push({
+            col: col
+          });
+        }
+        for (j$ = 0, len1$ = ps.length; j$ < len1$; ++j$) {
+          q = ps[j$];
+          stops.push({
+            col: col,
+            q: q
+          });
+        }
+      }
+      sz = cs.maskSize.split(/\s+/);
+      if ((ref$ = sz[0]) === 'cover' || ref$ === 'contain') {
+        return null;
+      }
+      len = function(v, ref){
+        if (!v || v === 'auto') {
+          return ref;
+        } else if (/%$/.test(v)) {
+          return ref * parseFloat(v) / 100;
+        } else {
+          return parseFloat(v);
+        }
+      };
+      tw = len(sz[0], w);
+      th = len(sz[1], h);
+      ps = cs.maskPosition.split(/\s+/);
+      pos = function(v, free){
+        if (/%$/.test(v)) {
+          return free * parseFloat(v) / 100;
+        } else {
+          return parseFloat(v) || 0;
+        }
+      };
+      x = pos(ps[0], w - tw);
+      y = pos(ps[1] || '0%', h - th);
+      glen = angle === 90 || angle === 270 ? tw : th;
+      offs = stops.map(function(s){
+        if (s.q == null) {
+          return null;
+        } else if (/%$/.test(s.q)) {
+          return parseFloat(s.q) / 100;
+        } else {
+          return parseFloat(s.q) / glen;
+        }
+      });
+      if (offs[0] == null) {
+        offs[0] = 0;
+      }
+      if (offs[offs.length - 1] == null) {
+        offs[offs.length - 1] = 1;
+      }
+      i = 0;
+      while (i < offs.length) {
+        if (offs[i] != null) {
+          i++;
+          continue;
+        }
+        j = i;
+        while (offs[j] == null) {
+          j++;
+        }
+        for (i$ = i; i$ < j; ++i$) {
+          k = i$;
+          offs[k] = offs[i - 1] + (offs[j] - offs[i - 1]) * (k - i + 1) / (j - i + 1);
+        }
+        i = j;
+      }
+      for (i$ = 1, to$ = offs.length; i$ < to$; ++i$) {
+        i = i$;
+        offs[i] = Math.max(offs[i], offs[i - 1]);
+      }
+      ref$ = {
+        90: [0, 0, 1, 0],
+        270: [1, 0, 0, 0],
+        180: [0, 0, 0, 1],
+        0: [0, 1, 0, 0]
+      }[angle], x1 = ref$[0], y1 = ref$[1], x2 = ref$[2], y2 = ref$[3];
+      grad = stops.map(function(s, i){
+        return "<stop offset=\"" + fmt(offs[i]) + "\" stop-color=\"rgb(" + s.col[0] + "," + s.col[1] + "," + s.col[2] + ")\" stop-opacity=\"" + s.col[3] + "\"/>";
+      }).join('');
+      return {
+        grad: "<linearGradient x1=\"" + x1 + "\" y1=\"" + y1 + "\" x2=\"" + x2 + "\" y2=\"" + y2 + "\">" + grad + "</linearGradient>",
+        rect: [x, y, tw, th],
+        key: cs.maskImage
+      };
+      function fn$(it){
+        return it;
+      }
     };
     sample = function(opt, ctx){
       var el, seek, n, fps, from, recs, byEl, recOf, variant, walkSvg, walk, i$, i;
@@ -1050,7 +1235,7 @@
         return v;
       };
       walkSvg = function(e, parent, i){
-        var cs, tag, rec, m, o, i$, ref$, len$, c, v, a, r;
+        var cs, tag, rec, m, o, i$, ref$, len$, c, v, a, p, r, len, drawable;
         cs = getComputedStyle(e);
         if (cs.display === 'none') {
           return;
@@ -1096,14 +1281,34 @@
         }
         rec.kind = 'leaf';
         v = -1;
-        a = null;
+        a = p = null;
         if (cs.visibility === 'visible' && o > 0) {
           r = leaf(e, cs, ctx);
-          a = r.a;
+          a = r.a, p = r.p;
+          if (r.t) {
+            rec.base == null && (rec.base = r.t);
+            m = mul(m, [1, 0, 0, 1, r.t.x - rec.base.x, r.t.y - rec.base.y]);
+            r.c.setAttribute(r.t.keys[0], rec.base.x);
+            r.c.setAttribute(r.t.keys[1], rec.base.y);
+          }
+          if (e.tagName.toLowerCase() === 'path') {
+            len = (function(){
+              try {
+                return e.getTotalLength();
+              } catch (e$) {
+                e = e$;
+                return null;
+              }
+            }());
+            drawable = cs.fill === 'none' && cs.strokeDasharray === 'none' && cs.markerStart === 'none' && cs.markerMid === 'none' && cs.markerEnd === 'none';
+          }
           v = variant(rec, xml(r.c), function(){
             return {
               c: r.c,
-              f: r.f
+              f: r.f,
+              d: e.getAttribute('d'),
+              len: len,
+              drawable: drawable
             };
           });
         }
@@ -1112,11 +1317,12 @@
           o: o,
           b: 0,
           v: v,
-          a: a
+          a: a,
+          p: p
         };
       };
       walk = function(e, parent, i, depth){
-        var cs, tag, rec, ref$, x, y, w, h, m, masked, i$, len$, c, blur, elems, hasText, atomic, v, node, st, k, laters, results$ = [];
+        var cs, tag, rec, ref$, x, y, w, h, m, gmask, masked, i$, len$, c, blur, elems, hasText, atomic, v, node, st, k, laters, results$ = [];
         cs = getComputedStyle(e);
         if (cs.display === 'none') {
           return;
@@ -1131,7 +1337,15 @@
         if (cs.zIndex !== 'auto') {
           ctx.warn("z-index ignored ( dom order is used )");
         }
-        masked = cs.maskImage !== 'none' || cs.clipPath !== 'none';
+        gmask = cs.maskImage !== 'none' ? maskOf(cs, w, h) : null;
+        if (gmask) {
+          if (!rec.mask) {
+            rec.mask = gmask;
+          } else if (rec.mask.key !== gmask.key) {
+            ctx.warn("mask image changes over time: only the first is kept");
+          }
+        }
+        masked = (cs.maskImage !== 'none' && !gmask) || cs.clipPath !== 'none';
         if (tag === 'svg' && !masked) {
           if (!rec.kind) {
             rec.kind = 'svg';
@@ -1145,7 +1359,8 @@
             m: m,
             o: +cs.opacity,
             b: 0,
-            v: -1
+            v: -1,
+            k: gmask && gmask.rect
           };
           if (+cs.opacity > 0) {
             for (i$ = 0, len$ = (ref$ = Array.from(e.children)).length; i$ < len$; ++i$) {
@@ -1181,6 +1396,12 @@
             if (blur != null) {
               delete st.filter;
             }
+            if (gmask) {
+              for (i$ = 0, len$ = (ref$ = ['maskImage', 'maskPosition', 'maskSize', 'maskRepeat']).length; i$ < len$; ++i$) {
+                k = ref$[i$];
+                delete st[k];
+              }
+            }
             delete node.blend;
             laters = ctx.laters;
             v = variant(rec, JSON.stringify(node), function(){
@@ -1197,7 +1418,8 @@
           m: m,
           o: +cs.opacity,
           b: blur || 0,
-          v: v
+          v: v,
+          k: gmask && gmask.rect
         };
         if (!atomic && +cs.opacity > 0) {
           for (i$ = 0, len$ = elems.length; i$ < len$; ++i$) {
@@ -1219,6 +1441,63 @@
         }
       }
       return recs;
+    };
+    drawOn = function(rec){
+      var vs, order, fams, famOf, i$, len$, k, d, f, ref$, fr, ref1$, results$ = [];
+      vs = rec.variants;
+      if (vs.length < 2 || !vs.every(function(v){
+        return v.d != null && v.len != null && v.drawable;
+      })) {
+        return;
+      }
+      order = (function(){
+        var i$, to$, results$ = [];
+        for (i$ = 0, to$ = vs.length; i$ < to$; ++i$) {
+          results$.push(i$);
+        }
+        return results$;
+      }()).sort(function(a, b){
+        return vs[b].d.length - vs[a].d.length;
+      });
+      fams = [];
+      famOf = [];
+      for (i$ = 0, len$ = order.length; i$ < len$; ++i$) {
+        k = order[i$];
+        d = vs[k].d;
+        f = fams.find(fn$);
+        if (!f) {
+          f = {
+            root: k
+          };
+          fams.push(f);
+        }
+        famOf[k] = f;
+      }
+      if (fams.length === vs.length) {
+        return;
+      }
+      rec.variants = fams.map(function(f, j){
+        var va;
+        va = vs[f.root];
+        f.j = j;
+        f.L = va.len + 1;
+        va.c.setAttribute('stroke-dasharray', f.L + " " + f.L);
+        return va;
+      });
+      for (i$ = 0, len$ = (ref$ = rec.frames).length; i$ < len$; ++i$) {
+        fr = ref$[i$];
+        if (fr && fr.v >= 0) {
+          f = famOf[fr.v];
+          fr.p = (ref1$ = fr.p || {}, ref1$['stroke-dashoffset'] = f.L - vs[fr.v].len, ref1$);
+          results$.push(fr.v = f.j);
+        }
+      }
+      return results$;
+      function fn$(f){
+        var r;
+        r = vs[f.root].d;
+        return r.startsWith(d) && (r.length === d.length || /[A-Za-z]/.test(r[d.length]));
+      }
     };
     PAD = 64;
     draw = function(satori, fonts, rec, k, va){
@@ -1251,13 +1530,13 @@
     };
     attrTol = function(k){
       if (/opacity/.test(k)) {
-        return 0.004;
+        return 0.008;
       } else {
         return 0.05;
       }
     };
     compose = function(recs, opt, fonts){
-      var n, fps, width, height, dur, css, fontNames, tail, series, rule, attrsOf, leafMarkup, out, body, faces, style;
+      var n, fps, width, height, dur, css, fontNames, tail, series, rule, track, animateEl, attrsOf, maskMarkup, withMask, leafMarkup, out, body, faces, style;
       n = opt.n, fps = opt.fps, width = opt.width, height = opt.height;
       dur = n / fps;
       css = [];
@@ -1308,6 +1587,47 @@
         base.push(prop + ":" + val(vals[0]));
         return name;
       };
+      track = function(k, frames, tol){
+        var ref$, vals, varies, idx, times, vs;
+        ref$ = series(frames), vals = ref$[0], varies = ref$[1];
+        if (!varies) {
+          return [k, fmt(vals[0][0])];
+        }
+        idx = simplify(vals, [tol]);
+        times = idx.map(function(i){
+          return i / n;
+        });
+        vs = idx.map(function(i){
+          return fmt(vals[i][0]);
+        });
+        if (times[times.length - 1] < 1) {
+          times.push(1);
+          vs.push(fmt(vals[n - 1][0]));
+        }
+        return [
+          k, fmt(vals[0][0]), {
+            times: times,
+            vs: vs
+          }
+        ];
+      };
+      animateEl = function(k, anim){
+        var a;
+        a = document.createElementNS('http://www.w3.org/2000/svg', 'animate');
+        a.setAttribute('attributeName', k);
+        a.setAttribute('dur', dur + "s");
+        a.setAttribute('calcMode', 'linear');
+        a.setAttribute('keyTimes', anim.times.map(function(it){
+          return +it.toFixed(4);
+        }).join(';'));
+        a.setAttribute('values', anim.vs.join(';'));
+        if (opt.repeat) {
+          a.setAttribute('repeatCount', 'indefinite');
+        } else {
+          a.setAttribute('fill', 'freeze');
+        }
+        return a;
+      };
       attrsOf = function(rec){
         var F, keys, i$, len$, f, k, ret;
         F = rec.frames;
@@ -1322,8 +1642,7 @@
         }
         ret = [];
         keys.forEach(function(k){
-          var ref$, vals, varies, idx, times, vs;
-          ref$ = series((function(){
+          return ret.push(track(k, (function(){
             var i$, to$, results$ = [];
             for (i$ = 0, to$ = n; i$ < to$; ++i$) {
               results$.push(i$);
@@ -1335,49 +1654,55 @@
             } else {
               return null;
             }
-          })), vals = ref$[0], varies = ref$[1];
-          if (!varies) {
-            return ret.push([k, fmt(vals[0][0])]);
-          }
-          idx = simplify(vals, [attrTol(k)]);
-          times = idx.map(function(i){
-            return i / n;
-          });
-          vs = idx.map(function(i){
-            return fmt(vals[i][0]);
-          });
-          if (times[times.length - 1] < 1) {
-            times.push(1);
-            vs.push(fmt(vals[n - 1][0]));
-          }
-          return ret.push([
-            k, fmt(vals[0][0]), {
-              times: times,
-              vs: vs
-            }
-          ]);
+          }), attrTol(k)));
         });
         return ret;
       };
+      maskMarkup = function(rec){
+        var F, r, i$, ref$, len$, j, k, ref1$, _, v, anim, grad;
+        F = rec.frames;
+        r = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+        r.setAttribute('fill', "url(#mg" + rec.id + ")");
+        for (i$ = 0, len$ = (ref$ = ['x', 'y', 'width', 'height']).length; i$ < len$; ++i$) {
+          j = i$;
+          k = ref$[i$];
+          ref1$ = track(k, (fn$()).map(fn1$), 0.25), _ = ref1$[0], v = ref1$[1], anim = ref1$[2];
+          r.setAttribute(k, v);
+          if (anim) {
+            r.appendChild(animateEl(k, anim));
+          }
+        }
+        grad = rec.mask.grad.replace('<linearGradient', "<linearGradient id=\"mg" + rec.id + "\"");
+        return "<mask id=\"m" + rec.id + "\" maskUnits=\"userSpaceOnUse\" x=\"-100000\" y=\"-100000\" width=\"200000\" height=\"200000\" style=\"mask-type:alpha\">" + grad + xml(r) + "</mask>";
+        function fn$(){
+          var i$, to$, results$ = [];
+          for (i$ = 0, to$ = n; i$ < to$; ++i$) {
+            results$.push(i$);
+          }
+          return results$;
+        }
+        function fn1$(i){
+          if (F[i] && F[i].k) {
+            return [F[i].k[j]];
+          } else {
+            return null;
+          }
+        }
+      };
+      withMask = function(rec, inner){
+        if (!rec.mask) {
+          return inner;
+        }
+        return maskMarkup(rec) + "<g mask=\"url(#m" + rec.id + ")\">" + inner + "</g>";
+      };
       leafMarkup = function(rec, va){
-        var c, i$, ref$, len$, ref1$, k, v, anim, a, f;
+        var c, i$, ref$, len$, ref1$, k, v, anim, f;
         c = va.c;
         for (i$ = 0, len$ = (ref$ = rec.tracks).length; i$ < len$; ++i$) {
           ref1$ = ref$[i$], k = ref1$[0], v = ref1$[1], anim = ref1$[2];
           c.setAttribute(k, v);
           if (anim) {
-            a = document.createElementNS('http://www.w3.org/2000/svg', 'animate');
-            a.setAttribute('attributeName', k);
-            a.setAttribute('dur', dur + "s");
-            a.setAttribute('calcMode', 'linear');
-            a.setAttribute('keyTimes', anim.times.map(fn$).join(';'));
-            a.setAttribute('values', anim.vs.join(';'));
-            if (opt.repeat) {
-              a.setAttribute('repeatCount', 'indefinite');
-            } else {
-              a.setAttribute('fill', 'freeze');
-            }
-            c.appendChild(a);
+            c.appendChild(animateEl(k, anim));
           }
         }
         if (va.f && va.f.fontFamily) {
@@ -1388,12 +1713,9 @@
           }
         }
         return xml(c);
-        function fn$(it){
-          return +it.toFixed(5);
-        }
       };
       out = function(rec){
-        var cls, base, anims, F, at, name, opa, vs, kids, inner;
+        var cls, base, anims, F, at, name, opa, pk, i$, len$, f, k, vs, kids, inner;
         if (rec.kind === 'static') {
           return rec.markup;
         }
@@ -1419,7 +1741,13 @@
         if (name = rule(cls, base, at(function(f){
           return f.m;
         }), 'transform', [0.005, 0.005, 0.005, 0.005, 0.25, 0.25], function(v){
-          return "matrix(" + v.map(fmt).join(',') + ")";
+          return "matrix(" + v.map(function(x, j){
+            if (j > 3) {
+              return +x.toFixed(2);
+            } else {
+              return fmt(x);
+            }
+          }).join(',') + ")";
         }, false)) {
           anims.push(name + " " + dur + "s linear");
         }
@@ -1432,8 +1760,8 @@
         }()).map(function(i){
           return [F[i] ? F[i].o : 0];
         });
-        if (name = rule(cls, base, opa, 'opacity', [0.004], function(v){
-          return fmt(v[0]);
+        if (name = rule(cls, base, opa, 'opacity', [0.008], function(v){
+          return +v[0].toFixed(3);
         }, false)) {
           anims.push(name + " " + dur + "s linear");
         }
@@ -1447,6 +1775,32 @@
           }
         }, false)) {
           anims.push(name + " " + dur + "s linear");
+        }
+        if (rec.kind === 'leaf') {
+          pk = new Set;
+          for (i$ = 0, len$ = F.length; i$ < len$; ++i$) {
+            f = F[i$];
+            if (f && f.p) {
+              for (k in f.p) {
+                pk.add(k);
+              }
+            }
+          }
+          pk.forEach(function(k){
+            var unit, name;
+            unit = /opacity/.test(k) ? '' : 'px';
+            if (name = rule(cls, base, at(function(f){
+              if (f.p) {
+                return [f.p[k]];
+              } else {
+                return null;
+              }
+            }), k, [attrTol(k)], function(v){
+              return fmt(v[0]) + "" + unit;
+            }, false)) {
+              return anims.push(name + " " + dur + "s linear");
+            }
+          });
         }
         if (rec.blend) {
           base.push("mix-blend-mode:" + rec.blend);
@@ -1491,17 +1845,17 @@
         if (rec.kind === 'svg') {
           inner = "<g transform=\"matrix(" + rec.vb.map(fmt).join(',') + ")\" style=\"" + rec.style.replace(/"/g, "'") + "\">" + kids + "</g>";
           if (rec.clip) {
-            inner = "<clipPath id=\"c" + rec.id + "\"><rect width=\"" + rec.clip[0] + "\" height=\"" + rec.clip[1] + "\"/></clipPath><g clip-path=\"url(" + c + rec.id + ")\">" + inner + "</g>";
+            inner = "<clipPath id=\"c" + rec.id + "\"><rect width=\"" + rec.clip[0] + "\" height=\"" + rec.clip[1] + "\"/></clipPath><g clip-path=\"url(#c" + rec.id + ")\">" + inner + "</g>";
           }
-          return "<g class=\"" + cls + "\">" + inner + "</g>";
+          return "<g class=\"" + cls + "\">" + withMask(rec, inner) + "</g>";
         }
         if (rec.kind === 'g') {
           return "<g class=\"" + cls + "\" " + rec.attrs + ">" + kids + "</g>";
         }
         if (rec.clip && kids) {
-          kids = "<clipPath id=\"c" + rec.id + "\"><rect width=\"" + rec.clip[0] + "\" height=\"" + rec.clip[1] + "\"/></clipPath><g clip-path=\"url(" + c + rec.id + ")\">" + kids + "</g>";
+          kids = "<clipPath id=\"c" + rec.id + "\"><rect width=\"" + rec.clip[0] + "\" height=\"" + rec.clip[1] + "\"/></clipPath><g clip-path=\"url(#c" + rec.id + ")\">" + kids + "</g>";
         }
-        return "<g class=\"" + cls + "\">" + vs.join('') + kids + "</g>";
+        return "<g class=\"" + cls + "\">" + withMask(rec, vs.join('') + kids) + "</g>";
       };
       body = out(recs[0]);
       faces = fonts.filter(function(it){
@@ -1513,7 +1867,7 @@
       return "<svg width=\"" + width + "\" height=\"" + height + "\" viewBox=\"0 0 " + width + " " + height + "\" xmlns=\"http://www.w3.org/2000/svg\"><style>" + style + "</style>" + body + "</svg>";
     };
     animate = function(opt){
-      var ctx, fps, from, to, ref$, n, el, o, t0, recs, t1, fonts;
+      var ctx, fps, from, to, ref$, n, el, o, t0, recs, i$, len$, rec, t1, fonts;
       opt == null && (opt = {});
       ctx = makeCtx();
       fps = opt.fps || 30;
@@ -1534,6 +1888,12 @@
       };
       t0 = performance.now();
       recs = sample(o, ctx);
+      for (i$ = 0, len$ = recs.length; i$ < len$; ++i$) {
+        rec = recs[i$];
+        if (rec.kind === 'leaf') {
+          drawOn(rec);
+        }
+      }
       t1 = performance.now();
       fonts = null;
       return prepare(ctx, opt).then(function(arg$){

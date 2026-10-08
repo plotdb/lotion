@@ -8,6 +8,11 @@
      natively: groups animate, leaves keep their markup with numeric attributes as smil `<animate>`, definitions are
      written once, and text uses fonts embedded once. `mix-blend-mode` now works at any depth.
    - demo: the `/vector/` page converts the whole animation and plays the animated svg
+   - animate, size: numeric tracks are written once per element instead of once per appearance ( positions of svg
+     leaves join the group matrix, inheritable values such as `stroke-dashoffset` animate on the group );
+     css gradient masks moved by `mask-position` / `mask-size` ( wipes ) become one svg mask with a moving rect, so
+     the content is drawn once; paths drawn progressively ( each `d` a prefix of a longer one ) become the full path
+     revealed by a dash animation. the code-only sumi-ink trial drops from 3.2 MB to 1.5 MB.
  - tweaks:
    - vector: inline svg keeps a content-based placeholder `src` until fonts are ready
 

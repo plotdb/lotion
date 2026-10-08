@@ -481,7 +481,7 @@ do ->
     [i for i from 0 til n when keep[i]]
 
   fmt = (v) -> +v.toFixed(4)
-  pct = (i, n) -> "#{+(100 * i / n).toFixed(4)}%"
+  pct = (i, n) -> "#{+(100 * i / n).toFixed(3)}%"
 
   # inline svg 不當成一張圖, 而是走進它的 dom: <g> 等容器成為動畫群組; 葉節點 ( path / text ... ) 各自有外觀變體,
   # 逐格變化的數值屬性寫成 smil <animate>; <defs> 等定義只輸出一次.
@@ -490,6 +490,8 @@ do ->
   NUM-ATTRS = <[x y x1 y1 x2 y2 cx cy r rx ry width height]>
   NUM-PROPS = <[stroke-dashoffset stroke-width fill-opacity stroke-opacity]>
   LEAF-STYLE = svg-props.filter -> !(it in NUM-PROPS) and !(it in <[opacity visibility display]>)
+  # 只代表位置 ( 平移 ) 的屬性
+  POS-ATTRS = {text: <[x y]>, rect: <[x y]>, image: <[x y]>, use: <[x y]>, foreignobject: <[x y]>, circle: <[cx cy]>, ellipse: <[cx cy]>}
   NUMERIC = /^\s*-?(\d+\.?\d*|\.\d+)(e-?\d+)?\s*$/
   xml = (e) -> new XMLSerializer!serializeToString e
   # 與父元素不同的 computed style ( 頁面的 css 規則在輸出中不存在, 改寫成行內樣式 )
@@ -501,24 +503,93 @@ do ->
       if pcs.getPropertyValue(k) != v => decl.push "#k:#v"
     decl.join ';'
   # 葉節點的外觀: 去掉 transform / opacity ( 由外層 <g> 處理 ) 與數值屬性 ( 寫成軌道 ) 的複本
+  #  - a: 幾何數值屬性 ( 寫成 smil ). t: 只是平移的位置屬性 ( 併入外層 <g> 的矩陣 )
+  #  - p: 可繼承的數值樣式 ( stroke-dashoffset 等, 寫成外層 <g> 的 css 動畫, 由葉節點繼承 )
+  #  這樣軌道只寫一次, 不隨外觀變體複製
   leaf = (e, cs, ctx) ->
+    tag = e.tagName.toLowerCase!
     c = e.cloneNode true
     for k in <[transform opacity style class]> => c.removeAttribute k
     a = {}
     for k in NUM-ATTRS
       v = e.getAttribute k
       if v? and NUMERIC.test(v) => a[k] = +v; c.removeAttribute k
-    for k in NUM-PROPS => a[k] = parseFloat(cs.getPropertyValue k) or 0; c.removeAttribute k
+    t = null
+    if pos = POS-ATTRS[tag]
+      t = {x: a[pos.0] or 0, y: a[pos.1] or 0, keys: pos}
+      delete a[pos.0]; delete a[pos.1]
+    p = {}
+    for k in NUM-PROPS => p[k] = parseFloat(cs.getPropertyValue k) or 0; c.removeAttribute k
     if d = style-diff e, cs => c.setAttribute \style, d
     f = null
-    if e.tagName.toLowerCase! == \text => f = {}; ctx.text cs, e.textContent, f
-    {c, a, f}
+    if tag == \text => f = {}; ctx.text cs, e.textContent, f
+    {c, a, t, p, f}
   # 容器的屬性: 去掉由動畫處理的部分, 加上行內樣式
   group-attrs = (e, cs) ->
     ret = for at in Array.from(e.attributes) when !(at.name in <[class style transform opacity]>)
       "#{at.name}=\"#{at.value.replace(/"/g, '&quot;')}\""
     if d = style-diff e, cs => ret.push "style=\"#{d.replace(/"/g, "'")}\""
     ret.join ' '
+
+  # css 的漸層 mask ( 單一 linear-gradient、no-repeat、水平或垂直 ) 轉成自己的 svg <mask>:
+  # 內容只畫一次, 只讓 mask 中的漸層矩形隨 mask-position / mask-size 移動 ( 擦入效果 ).
+  # 回傳 {grad, rect: [x, y, w, h], key}; 不支援時回傳 null, 該元素改為連同 mask 整個畫成外觀
+  split-top = (str) ->
+    [ret, depth, cur] = [[], 0, '']
+    for ch in str
+      if ch == '(' => depth++
+      if ch == ')' => depth--
+      if ch == ',' and depth == 0 => ret.push cur.trim!; cur = ''
+      else cur += ch
+    ret.push cur.trim!
+    ret
+  rgba = (c) ->
+    if !(m = /^rgba?\(([^)]*)\)$/.exec c) => return null
+    v = m.1.split(/[\s,\/]+/).filter(-> it).map(-> parseFloat it)
+    [v.0, v.1, v.2, v.3 ? 1]
+  mask-of = (cs, w, h) ->
+    if !(m = /^linear-gradient\((.*)\)$/.exec cs.maskImage) => return null
+    if !/^no-repeat( no-repeat)?$/.test(cs.maskRepeat) => return null
+    parts = split-top m.1
+    angle = 180
+    if a = /^(-?[\d.]+)deg$/.exec(parts.0) => angle = +a.1; parts.shift!
+    else if /^to /.test(parts.0)
+      angle = {'to top': 0, 'to right': 90, 'to bottom': 180, 'to left': 270}[parts.0]
+      if !angle? => return null
+      parts.shift!
+    angle = ((angle % 360) + 360) % 360
+    if angle % 90 => return null
+    # 色標: 顏色加 0 到 2 個位置
+    stops = []
+    for p in parts
+      if !(c = /^(rgba?\([^)]*\))\s*(.*)$/.exec p) => return null
+      col = rgba c.1
+      ps = c.2.split(/\s+/).filter(-> it)
+      if !ps.length => stops.push {col}
+      for q in ps => stops.push {col, q}
+    sz = cs.maskSize.split /\s+/
+    if sz.0 in <[cover contain]> => return null
+    len = (v, ref) -> if !v or v == \auto => ref else if /%$/.test(v) => ref * parseFloat(v) / 100 else parseFloat(v)
+    tw = len sz.0, w; th = len sz.1, h
+    ps = cs.maskPosition.split /\s+/
+    pos = (v, free) -> if /%$/.test(v) => free * parseFloat(v) / 100 else parseFloat(v) or 0
+    x = pos ps.0, w - tw; y = pos(ps.1 or '0%', h - th)
+    glen = if angle in [90, 270] => tw else th
+    offs = stops.map (s) -> if !s.q? => null else if /%$/.test(s.q) => parseFloat(s.q) / 100 else parseFloat(s.q) / glen
+    if !offs.0? => offs.0 = 0
+    if !offs[* - 1]? => offs[* - 1] = 1
+    # 沒有位置的色標平均分配; 位置不得倒退
+    i = 0
+    while i < offs.length
+      if offs[i]? => i++; continue
+      j = i
+      while !offs[j]? => j++
+      for k from i til j => offs[k] = offs[i - 1] + (offs[j] - offs[i - 1]) * (k - i + 1) / (j - i + 1)
+      i = j
+    for i from 1 til offs.length => offs[i] = Math.max offs[i], offs[i - 1]
+    [x1, y1, x2, y2] = {90: [0 0 1 0], 270: [1 0 0 0], 180: [0 0 0 1], 0: [0 1 0 0]}[angle]
+    grad = stops.map((s, i) -> "<stop offset=\"#{fmt offs[i]}\" stop-color=\"rgb(#{s.col.0},#{s.col.1},#{s.col.2})\" stop-opacity=\"#{s.col.3}\"/>").join('')
+    {grad: "<linearGradient x1=\"#x1\" y1=\"#y1\" x2=\"#x2\" y2=\"#y2\">#grad</linearGradient>", rect: [x, y, tw, th], key: cs.maskImage}
 
   # 逐格取樣. 回傳 recs; rec: {id, el, parent, kids, kind, variants, frames, ...}
   #  kind: html ( 預設, 外觀以 satori 畫 ) / svg ( inline svg 本身 ) / g ( svg 容器 ) / leaf ( svg 葉節點 ) / static
@@ -558,12 +629,22 @@ do ->
         return
       rec.kind = \leaf
       v = -1
-      a = null
+      a = p = null
       if cs.visibility == \visible and o > 0
         r = leaf e, cs, ctx
-        a = r.a
-        v = variant rec, xml(r.c), -> {c: r.c, f: r.f}
-      rec.frames[i] = {m, o, b: 0, v, a}
+        {a, p} = r
+        # 位置相對於第一次出現時: 複本寫入當時的值, 之後的差併入矩陣
+        if r.t
+          rec.base ?= r.t
+          m = mul m, [1, 0, 0, 1, r.t.x - rec.base.x, r.t.y - rec.base.y]
+          r.c.setAttribute r.t.keys.0, rec.base.x
+          r.c.setAttribute r.t.keys.1, rec.base.y
+        if e.tagName.toLowerCase! == \path
+          # 逐漸畫出的 path 之後改以 dash 動畫表示 ( 見 draw-on ), 先記下長度與是否適用
+          len = try e.getTotalLength! catch => null
+          drawable = cs.fill == \none and cs.strokeDasharray == \none and cs.markerStart == \none and cs.markerMid == \none and cs.markerEnd == \none
+        v = variant rec, xml(r.c), -> {c: r.c, f: r.f, d: e.getAttribute(\d), len, drawable}
+      rec.frames[i] = {m, o, b: 0, v, a, p}
     walk = (e, parent, i, depth) ->
       cs = getComputedStyle e
       if cs.display == \none => return
@@ -573,12 +654,17 @@ do ->
       m = if depth == 0 => IDENT else motion-matrix x, y, cs, ctx
       rec.blend = if cs.mixBlendMode != \normal => cs.mixBlendMode else null
       if cs.zIndex != \auto => ctx.warn "z-index ignored ( dom order is used )"
-      masked = cs.maskImage != \none or cs.clipPath != \none
+      gmask = if cs.maskImage != \none => mask-of(cs, w, h) else null
+      if gmask
+        if !rec.mask => rec.mask = gmask
+        else if rec.mask.key != gmask.key => ctx.warn "mask image changes over time: only the first is kept"
+      # 不支援的 mask / clip-path: 連同子元素整個畫成外觀
+      masked = (cs.maskImage != \none and !gmask) or cs.clipPath != \none
       if tag == \svg and !masked
         # 不輸出巢狀 <svg> ( 其中的 smil 不隨外層 svg 暫停 / 跳轉 ): viewBox 換成矩陣, overflow 換成 clipPath
         if !rec.kind
           rec <<< {kind: \svg, vb: viewbox-matrix(e, w, h), clip: (if cs.overflow == \visible => null else [w, h]), style: style-diff(e, cs)}
-        rec.frames[i] = {m, o: +cs.opacity, b: 0, v: -1}
+        rec.frames[i] = {m, o: +cs.opacity, b: 0, v: -1, k: gmask and gmask.rect}
         if +cs.opacity > 0 => for c in Array.from(e.children) => walk-svg c, rec, i
         return
       blur = blur-of cs.filter
@@ -595,11 +681,12 @@ do ->
           st = node.props.style
           for k in <[position left top transform transformOrigin opacity]> => delete st[k]
           if blur? => delete st.filter
+          if gmask => for k in <[maskImage maskPosition maskSize maskRepeat]> => delete st[k]
           delete node.blend
           # 外觀相同就共用同一個變體 ( svg 圖片在字型就緒前以內容暫代 src, 仍可區分 )
           laters = ctx.laters
           v = variant rec, JSON.stringify(node), -> {node, w, h, laters}
-      rec.frames[i] = {m, o: +cs.opacity, b: blur or 0, v}
+      rec.frames[i] = {m, o: +cs.opacity, b: blur or 0, v, k: gmask and gmask.rect}
       if !atomic and +cs.opacity > 0 => for c in elems => walk c, rec, i, depth + 1
     for i from 0 til n
       if opt.signal and opt.signal.aborted => throw new DOMException('aborted', \AbortError)
@@ -607,6 +694,33 @@ do ->
       walk el, null, i, 0
       if opt.progress => opt.progress 0.5 * (i + 1) / n
     recs
+
+  # 逐漸畫出的 path: 若各格的 d 都是某個較長 d 的前段 ( 在指令邊界 ), 只輸出最長的那條,
+  # 以 stroke-dasharray / dashoffset 畫出各格的長度. 只用於沒有填色、虛線與 marker 的描邊.
+  # 不是前段關係的 ( 如形狀內插 ) 各自成為一個家族
+  draw-on = (rec) ->
+    vs = rec.variants
+    if vs.length < 2 or !vs.every((v) -> v.d? and v.len? and v.drawable) => return
+    order = [0 til vs.length].sort (a, b) -> vs[b].d.length - vs[a].d.length
+    fams = []
+    fam-of = []
+    for k in order
+      d = vs[k].d
+      f = fams.find (f) ->
+        r = vs[f.root].d
+        r.startsWith(d) and (r.length == d.length or /[A-Za-z]/.test(r[d.length]))
+      if !f => f = {root: k}; fams.push f
+      fam-of[k] = f
+    if fams.length == vs.length => return
+    rec.variants = fams.map (f, j) ->
+      va = vs[f.root]
+      f <<< {j, L: va.len + 1}
+      va.c.setAttribute \stroke-dasharray, "#{f.L} #{f.L}"
+      va
+    for fr in rec.frames when fr and fr.v >= 0
+      f = fam-of[fr.v]
+      fr.p = (fr.p or {}) <<< {'stroke-dashoffset': f.L - vs[fr.v].len}
+      fr.v = f.j
 
   # 以 satori 畫一個變體. 四周留白以容納陰影等超出盒子的效果, 再平移回來
   PAD = 64
@@ -619,7 +733,7 @@ do ->
         "<g transform=\"translate(#{-PAD},#{-PAD})\">#inner</g>"
 
   # 數值軌道的容許誤差
-  attr-tol = (k) -> if /opacity/.test(k) => 0.004 else 0.05
+  attr-tol = (k) -> if /opacity/.test(k) => 0.008 else 0.05
 
   # 組成 svg: 每個 rec 一個 <g class="n{id}">, 依 rec.kids 巢狀; 運動與變體切換寫成 css, svg 數值屬性寫成 smil
   compose = (recs, opt, fonts) ->
@@ -643,33 +757,51 @@ do ->
       base.push "#prop:#{val vals.0}"
       return name
     # 葉節點的數值屬性: 不變的直接寫入, 會變的加上 <animate>
+    # 一個數值屬性的軌道: [名稱, 初值, 動畫 ( 不變時為 undefined )]
+    track = (k, frames, tol) ->
+      [vals, varies] = series frames
+      if !varies => return [k, fmt vals.0.0]
+      idx = simplify vals, [tol]
+      times = idx.map (i) -> i / n
+      vs = idx.map (i) -> fmt vals[i].0
+      if times[* - 1] < 1 => times.push 1; vs.push fmt(vals[n - 1].0)
+      [k, fmt(vals.0.0), {times, vs}]
+    animate-el = (k, anim) ->
+      a = document.createElementNS 'http://www.w3.org/2000/svg', \animate
+      a.setAttribute \attributeName, k
+      a.setAttribute \dur, "#{dur}s"
+      a.setAttribute \calcMode, \linear
+      a.setAttribute \keyTimes, anim.times.map(-> +it.toFixed 4).join(';')
+      a.setAttribute \values, anim.vs.join(';')
+      if opt.repeat => a.setAttribute \repeatCount, \indefinite else a.setAttribute \fill, \freeze
+      a
     attrs-of = (rec) ->
       F = rec.frames
       keys = new Set
       for f in F when f and f.a => for k of f.a => keys.add k
       ret = []
       keys.forEach (k) ->
-        [vals, varies] = series [0 til n].map (i) -> if F[i] and F[i].a and F[i].a[k]? => [F[i].a[k]] else null
-        if !varies => return ret.push [k, fmt vals.0.0]
-        idx = simplify vals, [attr-tol k]
-        times = idx.map (i) -> i / n
-        vs = idx.map (i) -> fmt vals[i].0
-        if times[* - 1] < 1 => times.push 1; vs.push fmt(vals[n - 1].0)
-        ret.push [k, fmt(vals.0.0), {times, vs}]
+        ret.push track k, [0 til n].map((i) -> if F[i] and F[i].a and F[i].a[k]? => [F[i].a[k]] else null), attr-tol(k)
       ret
+    # 漸層 mask: 矩形的位置與大小寫成 smil
+    mask-markup = (rec) ->
+      F = rec.frames
+      r = document.createElementNS 'http://www.w3.org/2000/svg', \rect
+      r.setAttribute \fill, "url(\#mg#{rec.id})"
+      for k, j in <[x y width height]>
+        [_, v, anim] = track k, [0 til n].map((i) -> if F[i] and F[i].k => [F[i].k[j]] else null), 0.25
+        r.setAttribute k, v
+        if anim => r.appendChild animate-el(k, anim)
+      grad = rec.mask.grad.replace '<linearGradient', "<linearGradient id=\"mg#{rec.id}\""
+      "<mask id=\"m#{rec.id}\" maskUnits=\"userSpaceOnUse\" x=\"-100000\" y=\"-100000\" width=\"200000\" height=\"200000\" style=\"mask-type:alpha\">#grad#{xml r}</mask>"
+    with-mask = (rec, inner) ->
+      if !rec.mask => return inner
+      "#{mask-markup rec}<g mask=\"url(\#m#{rec.id})\">#inner</g>"
     leaf-markup = (rec, va) ->
       c = va.c
       for [k, v, anim] in rec.tracks
         c.setAttribute k, v
-        if anim
-          a = document.createElementNS 'http://www.w3.org/2000/svg', \animate
-          a.setAttribute \attributeName, k
-          a.setAttribute \dur, "#{dur}s"
-          a.setAttribute \calcMode, \linear
-          a.setAttribute \keyTimes, anim.times.map(-> +it.toFixed 5).join(';')
-          a.setAttribute \values, anim.vs.join(';')
-          if opt.repeat => a.setAttribute \repeatCount, \indefinite else a.setAttribute \fill, \freeze
-          c.appendChild a
+        if anim => c.appendChild animate-el(k, anim)
       if va.f and va.f.fontFamily
         c.setAttribute \style, "#{c.getAttribute(\style) or ''};font-family:#{va.f.fontFamily}"
         for f in va.f.fontFamily.split(',') => font-names.add f.trim!replace(/'/g, '')
@@ -682,12 +814,20 @@ do ->
       F = rec.frames
       at = (f) -> [0 til n].map (i) -> if F[i] => f F[i] else null
       if name = rule(cls, base, at((f) -> f.m), \transform, [0.005, 0.005, 0.005, 0.005, 0.25, 0.25],
-        ((v) -> "matrix(#{v.map(fmt).join(',')})"), false) => anims.push "#name #{dur}s linear"
+        ((v) -> "matrix(#{v.map((x, j) -> if j > 3 => +x.toFixed(2) else fmt x).join(',')})"), false) => anims.push "#name #{dur}s linear"
       # 不存在的格視為透明
       opa = [0 til n].map (i) -> [if F[i] => F[i].o else 0]
-      if name = rule(cls, base, opa, \opacity, [0.004], ((v) -> fmt v.0), false) => anims.push "#name #{dur}s linear"
+      if name = rule(cls, base, opa, \opacity, [0.008], ((v) -> +v.0.toFixed(3)), false) => anims.push "#name #{dur}s linear"
       if name = rule(cls, base, at((f) -> [f.b]), \filter, [0.05], ((v) -> if v.0 > 0.01 => "blur(#{fmt v.0}px)" else \none), false)
         anims.push "#name #{dur}s linear"
+      # 可繼承的數值樣式 ( 葉節點 )
+      if rec.kind == \leaf
+        pk = new Set
+        for f in F when f and f.p => for k of f.p => pk.add k
+        pk.forEach (k) ->
+          unit = if /opacity/.test(k) => '' else \px
+          if name = rule(cls, base, at((f) -> if f.p => [f.p[k]] else null), k, [attr-tol k], ((v) -> "#{fmt v.0}#unit"), false)
+            anims.push "#name #{dur}s linear"
       if rec.blend => base.push "mix-blend-mode:#{rec.blend}"
       if anims.length => base.push "animation:#{anims.map(-> it + tail).join(',')}"
       css.push ".#cls{#{base.join(';')}}"
@@ -705,12 +845,12 @@ do ->
       if rec.kind == \svg
         inner = "<g transform=\"matrix(#{rec.vb.map(fmt).join(',')})\" style=\"#{rec.style.replace(/"/g, "'")}\">#kids</g>"
         if rec.clip
-          inner = "<clipPath id=\"c#{rec.id}\"><rect width=\"#{rec.clip.0}\" height=\"#{rec.clip.1}\"/></clipPath><g clip-path=\"url(#c#{rec.id})\">#inner</g>"
-        return "<g class=\"#cls\">#inner</g>"
+          inner = "<clipPath id=\"c#{rec.id}\"><rect width=\"#{rec.clip.0}\" height=\"#{rec.clip.1}\"/></clipPath><g clip-path=\"url(\#c#{rec.id})\">#inner</g>"
+        return "<g class=\"#cls\">#{with-mask rec, inner}</g>"
       if rec.kind == \g => return "<g class=\"#cls\" #{rec.attrs}>#kids</g>"
       if rec.clip and kids
-        kids = "<clipPath id=\"c#{rec.id}\"><rect width=\"#{rec.clip.0}\" height=\"#{rec.clip.1}\"/></clipPath><g clip-path=\"url(#c#{rec.id})\">#kids</g>"
-      "<g class=\"#cls\">#{vs.join('')}#kids</g>"
+        kids = "<clipPath id=\"c#{rec.id}\"><rect width=\"#{rec.clip.0}\" height=\"#{rec.clip.1}\"/></clipPath><g clip-path=\"url(\#c#{rec.id})\">#kids</g>"
+      "<g class=\"#cls\">#{with-mask rec, vs.join('') + kids}</g>"
     body = out recs.0
     # svg 中的文字 ( 未經 satori ) 需要的字型, 以 data uri 嵌入一次
     faces = fonts.filter(-> font-names.has it.name).map (f) ->
@@ -734,6 +874,7 @@ do ->
     o = {el, seek: opt.seek, n, fps, from, signal: opt.signal, progress: opt.progress}
     t0 = performance.now!
     recs = sample o, ctx
+    for rec in recs when rec.kind == \leaf => draw-on rec
     t1 = performance.now!
     fonts = null
     prepare ctx, opt
