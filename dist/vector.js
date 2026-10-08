@@ -1,6 +1,6 @@
 (function(){
   (function(){
-    var lotion, ref$, props, skip, i$, len$, s, c, textProps, unsupported, b64Bytes, b64, svgUri, fixUri, box, svgProps, svgSrc, bakeTransform, convert, fontCache, unquote, parseRange, parseSrc, faceOf, facesInText, facesInSheet, allFaces, getFaces, loadFont, hb, getHb, WGHT, subset, clamp, weightRank, fontsFor, render, vector;
+    var lotion, ref$, props, skip, i$, len$, s, c, textProps, unsupported, b64Bytes, b64, svgUri, fixUri, box, svgProps, svgSrc, bakeTransform, convert, fontCache, unquote, parseRange, parseSrc, faceOf, facesInText, facesInSheet, allFaces, getFaces, loadFont, hb, getHb, WGHT, subset, clamp, weightRank, fontsFor, render, makeCtx, prepare, vector, IDENT, mul, parseMatrix, motionMatrix, svgMatrix, viewboxMatrix, blurOf, simplify, fmt, pct, SVGGROUP, SVGSTATIC, NUMATTRS, NUMPROPS, LEAFSTYLE, NUMERIC, xml, styleDiff, leaf, groupAttrs, sample, PAD, draw, attrTol, compose, animate;
     lotion = window.lotion;
     ref$ = lotion.libs;
     ref$.satori = 'https://cdn.jsdelivr.net/npm/satori@0.36.0/+esm';
@@ -187,7 +187,7 @@
         }
         return node.props.src = svgUri(new XMLSerializer().serializeToString(c));
       });
-      return '';
+      return "pending:" + new XMLSerializer().serializeToString(c);
     };
     bakeTransform = function(node, ctx){
       var st, m, v;
@@ -212,9 +212,10 @@
       }
       return node;
     };
-    convert = function(el, ctx, depth){
+    convert = function(el, ctx, depth, o){
       var root, cs, tag, ref$, x, y, w, h, hidden, k, v, blend, kids, texts, elems, style, i$, len$, s, node, children, text, jc, c, that;
       depth == null && (depth = 0);
+      o == null && (o = {});
       root = depth === 0;
       cs = getComputedStyle(el);
       if (cs.display === 'none' || +cs.opacity === 0) {
@@ -312,7 +313,9 @@
             return svgSrc(el, w, h, ctx, node);
           }
         }());
-        return bakeTransform(node, ctx);
+        return o.nobake
+          ? node
+          : bakeTransform(node, ctx);
       }
       children = [];
       if (texts.length && !hidden) {
@@ -330,10 +333,12 @@
           style.justifyContent = jc;
         }
       }
-      for (i$ = 0, len$ = elems.length; i$ < len$; ++i$) {
-        c = elems[i$];
-        if (that = convert(c, ctx, depth + 1)) {
-          children.push(that);
+      if (!o.own) {
+        for (i$ = 0, len$ = elems.length; i$ < len$; ++i$) {
+          c = elems[i$];
+          if (that = convert(c, ctx, depth + 1)) {
+            children.push(that);
+          }
         }
       }
       node = {
@@ -346,7 +351,11 @@
       if (blend && depth === 1) {
         node.blend = blend;
       }
-      return bakeTransform(node, ctx);
+      if (o.nobake) {
+        return node;
+      } else {
+        return bakeTransform(node, ctx);
+      }
     };
     fontCache = {};
     unquote = function(s){
@@ -706,26 +715,25 @@
         return "<svg width=\"" + o.width + "\" height=\"" + o.height + "\" viewBox=\"0 0 " + o.width + " " + o.height + "\" xmlns=\"http://www.w3.org/2000/svg\">" + layers.join('') + "</svg>";
       });
     };
-    vector = function(el, opt){
-      var warns, used, laters, ctx, tree, w, h, ref$, that;
-      opt == null && (opt = {});
-      warns = {};
-      used = {};
-      laters = [];
-      ctx = {
+    makeCtx = function(){
+      var ctx;
+      return ctx = {
+        warns: {},
+        used: {},
+        laters: [],
         warn: function(m){
-          return warns[m] = (warns[m] || 0) + 1;
+          return ctx.warns[m] = (ctx.warns[m] || 0) + 1;
         },
         later: function(f){
-          return laters.push(f);
+          return ctx.laters.push(f);
         },
         text: function(cs, text, style){
-          var weight, key, u, ref$, i$, len$, c;
+          var weight, key, u, ref$, ref1$, i$, len$, c;
           weight = +cs.fontWeight || 400;
           key = cs.fontFamily + "|" + weight + "|" + cs.fontStyle;
-          u = (ref$ = used[key]) != null
-            ? ref$
-            : used[key] = {
+          u = (ref1$ = (ref$ = ctx.used)[key]) != null
+            ? ref1$
+            : ref$[key] = {
               families: cs.fontFamily.split(',').map(unquote),
               weight: weight,
               style: cs.fontStyle,
@@ -737,8 +745,47 @@
             u.chars.add(c);
           }
           return u.styles.push(style);
+        },
+        warnings: function(){
+          var k, ref$, v, results$ = [];
+          for (k in ref$ = ctx.warns) {
+            v = ref$[k];
+            results$.push(k + (v > 1 ? " ( x" + v + " )" : ''));
+          }
+          return results$;
         }
       };
+    };
+    prepare = function(ctx, opt){
+      var that;
+      return Promise.all([
+        (that = opt.satori)
+          ? Promise.resolve(that)
+          : lotion.lib('satori'), (that = opt.fonts)
+          ? Promise.resolve(that)
+          : fontsFor(ctx.used, ctx)
+      ]).then(function(arg$){
+        var m, fonts, k, ref$, u, i$, ref1$, len$, s;
+        m = arg$[0], fonts = arg$[1];
+        if (!opt.fonts) {
+          for (k in ref$ = ctx.used) {
+            u = ref$[k];
+            for (i$ = 0, len$ = (ref1$ = u.styles).length; i$ < len$; ++i$) {
+              s = ref1$[i$];
+              s.fontFamily = u.names.map(fn$).join(', ');
+            }
+          }
+        }
+        return [m['default'] || m.satori || m, fonts];
+        function fn$(it){
+          return "'" + it + "'";
+        }
+      });
+    };
+    vector = function(el, opt){
+      var ctx, tree, w, h, ref$;
+      opt == null && (opt = {});
+      ctx = makeCtx();
       tree = convert(el, ctx);
       w = opt.width || el.offsetWidth;
       h = opt.height || el.offsetHeight;
@@ -748,50 +795,832 @@
       ref$.overflow = 'hidden';
       delete tree.props.style.transform;
       delete tree.props.style.transformOrigin;
-      return Promise.all([
-        (that = opt.satori)
-          ? Promise.resolve(that)
-          : lotion.lib('satori'), (that = opt.fonts)
-          ? Promise.resolve(that)
-          : fontsFor(used, ctx)
-      ]).then(function(arg$){
-        var m, fonts, k, ref$, u, i$, ref1$, len$, s, f, satori;
-        m = arg$[0], fonts = arg$[1];
-        if (!opt.fonts) {
-          for (k in ref$ = used) {
-            u = ref$[k];
-            for (i$ = 0, len$ = (ref1$ = u.styles).length; i$ < len$; ++i$) {
-              s = ref1$[i$];
-              s.fontFamily = u.names.map(fn$).join(', ');
-            }
-          }
-        }
-        for (i$ = 0, len$ = (ref$ = laters).length; i$ < len$; ++i$) {
+      return prepare(ctx, opt).then(function(arg$){
+        var satori, fonts, i$, ref$, len$, f;
+        satori = arg$[0], fonts = arg$[1];
+        for (i$ = 0, len$ = (ref$ = ctx.laters).length; i$ < len$; ++i$) {
           f = ref$[i$];
           f(fonts);
         }
-        satori = m['default'] || m.satori || m;
         return render(satori, tree, {
           width: w,
           height: h,
           fonts: fonts
         });
-        function fn$(it){
-          return "'" + it + "'";
-        }
       }).then(function(svg){
-        var k, v;
         return {
           svg: svg,
-          warnings: (function(){
-            var ref$, results$ = [];
-            for (k in ref$ = warns) {
-              v = ref$[k];
-              results$.push(k + (v > 1 ? " ( x" + v + " )" : ''));
+          warnings: ctx.warnings()
+        };
+      });
+    };
+    IDENT = [1, 0, 0, 1, 0, 0];
+    mul = function(m, n){
+      return [m[0] * n[0] + m[2] * n[1], m[1] * n[0] + m[3] * n[1], m[0] * n[2] + m[2] * n[3], m[1] * n[2] + m[3] * n[3], m[0] * n[4] + m[2] * n[5] + m[4], m[1] * n[4] + m[3] * n[5] + m[5]];
+    };
+    parseMatrix = function(v, ctx){
+      var m, a;
+      if (!v || v === 'none') {
+        return IDENT;
+      }
+      if (m = /^matrix\(([^)]+)\)$/.exec(v)) {
+        return m[1].split(',').map(function(it){
+          return +it;
+        });
+      }
+      if (m = /^matrix3d\(([^)]+)\)$/.exec(v)) {
+        a = m[1].split(',').map(function(it){
+          return +it;
+        });
+        ctx.warn("3d transform flattened to 2d");
+        return [a[0], a[1], a[4], a[5], a[12], a[13]];
+      }
+      return IDENT;
+    };
+    motionMatrix = function(x, y, cs, ctx){
+      var m, ref$, ox, oy;
+      m = parseMatrix(cs.transform, ctx);
+      if (m === IDENT) {
+        return [1, 0, 0, 1, x, y];
+      }
+      ref$ = cs.transformOrigin.split(' ').map(function(it){
+        return parseFloat(it) || 0;
+      }), ox = ref$[0], oy = ref$[1];
+      return mul([1, 0, 0, 1, x + ox, y + oy], mul(m, [1, 0, 0, 1, -ox, -oy]));
+    };
+    svgMatrix = function(e, cs, ctx){
+      var l, m;
+      if (cs.transform !== 'none') {
+        return motionMatrix(0, 0, cs, ctx);
+      }
+      l = e.transform && e.transform.baseVal;
+      if (!(l && l.numberOfItems)) {
+        return IDENT;
+      }
+      m = l.consolidate().matrix;
+      return [m.a, m.b, m.c, m.d, m.e, m.f];
+    };
+    viewboxMatrix = function(e, w, h){
+      var vb, ref$, sx, sy, par, s, ax, ay, dx, dy;
+      vb = e.viewBox && e.viewBox.baseVal;
+      if (!(vb && vb.width && vb.height)) {
+        return IDENT;
+      }
+      ref$ = [w / vb.width, h / vb.height], sx = ref$[0], sy = ref$[1];
+      par = e.preserveAspectRatio.baseVal;
+      if (par.align === 1) {
+        return [sx, 0, 0, sy, -vb.x * sx, -vb.y * sy];
+      }
+      s = par.meetOrSlice === 2
+        ? Math.max(sx, sy)
+        : Math.min(sx, sy);
+      ax = (par.align - 2) % 3;
+      ay = Math.floor((par.align - 2) / 3);
+      dx = (w - vb.width * s) * ax / 2;
+      dy = (h - vb.height * s) * ay / 2;
+      return [s, 0, 0, s, dx - vb.x * s, dy - vb.y * s];
+    };
+    blurOf = function(f){
+      var m;
+      if (!f || f === 'none') {
+        return 0;
+      } else if (m = /^blur\(([\d.]+)px\)$/.exec(f)) {
+        return +m[1];
+      } else {
+        return null;
+      }
+    };
+    simplify = function(vals, tol){
+      var n, keep, stack, ref$, a, b, worst, at, i$, i, f, j$, to$, k, e, results$ = [];
+      n = vals.length;
+      if (n < 3) {
+        return (function(){
+          var i$, to$, results$ = [];
+          for (i$ = 0, to$ = n; i$ < to$; ++i$) {
+            results$.push(i$);
+          }
+          return results$;
+        }());
+      }
+      keep = new Uint8Array(n);
+      keep[0] = keep[n - 1] = 1;
+      stack = [[0, n - 1]];
+      while (stack.length) {
+        ref$ = stack.pop(), a = ref$[0], b = ref$[1];
+        ref$ = [1, -1], worst = ref$[0], at = ref$[1];
+        for (i$ = a + 1; i$ < b; ++i$) {
+          i = i$;
+          f = (i - a) / (b - a);
+          for (j$ = 0, to$ = vals[a].length; j$ < to$; ++j$) {
+            k = j$;
+            e = Math.abs(vals[a][k] + (vals[b][k] - vals[a][k]) * f - vals[i][k]) / tol[k];
+            if (e > worst) {
+              worst = e;
+              at = i;
+            }
+          }
+        }
+        if (at >= 0) {
+          keep[at] = 1;
+          stack.push([a, at], [at, b]);
+        }
+      }
+      for (i$ = 0; i$ < n; ++i$) {
+        i = i$;
+        if (keep[i]) {
+          results$.push(i);
+        }
+      }
+      return results$;
+    };
+    fmt = function(v){
+      return +v.toFixed(4);
+    };
+    pct = function(i, n){
+      return (+(100 * i / n).toFixed(4)) + "%";
+    };
+    SVGGROUP = ['g', 'a', 'switch'];
+    SVGSTATIC = ['defs', 'clippath', 'mask', 'lineargradient', 'radialgradient', 'filter', 'pattern', 'symbol', 'style', 'marker', 'title', 'desc', 'metadata'];
+    NUMATTRS = ['x', 'y', 'x1', 'y1', 'x2', 'y2', 'cx', 'cy', 'r', 'rx', 'ry', 'width', 'height'];
+    NUMPROPS = ['stroke-dashoffset', 'stroke-width', 'fill-opacity', 'stroke-opacity'];
+    LEAFSTYLE = svgProps.filter(function(it){
+      return !in$(it, NUMPROPS) && !(it === 'opacity' || it === 'visibility' || it === 'display');
+    });
+    NUMERIC = /^\s*-?(\d+\.?\d*|\.\d+)(e-?\d+)?\s*$/;
+    xml = function(e){
+      return new XMLSerializer().serializeToString(e);
+    };
+    styleDiff = function(e, cs){
+      var pcs, decl, i$, ref$, len$, k, v;
+      pcs = getComputedStyle(e.parentNode);
+      decl = [];
+      for (i$ = 0, len$ = (ref$ = LEAFSTYLE).length; i$ < len$; ++i$) {
+        k = ref$[i$];
+        v = cs.getPropertyValue(k);
+        if (pcs.getPropertyValue(k) !== v) {
+          decl.push(k + ":" + v);
+        }
+      }
+      return decl.join(';');
+    };
+    leaf = function(e, cs, ctx){
+      var c, i$, ref$, len$, k, a, v, d, f;
+      c = e.cloneNode(true);
+      for (i$ = 0, len$ = (ref$ = ['transform', 'opacity', 'style', 'class']).length; i$ < len$; ++i$) {
+        k = ref$[i$];
+        c.removeAttribute(k);
+      }
+      a = {};
+      for (i$ = 0, len$ = (ref$ = NUMATTRS).length; i$ < len$; ++i$) {
+        k = ref$[i$];
+        v = e.getAttribute(k);
+        if (v != null && NUMERIC.test(v)) {
+          a[k] = +v;
+          c.removeAttribute(k);
+        }
+      }
+      for (i$ = 0, len$ = (ref$ = NUMPROPS).length; i$ < len$; ++i$) {
+        k = ref$[i$];
+        a[k] = parseFloat(cs.getPropertyValue(k)) || 0;
+        c.removeAttribute(k);
+      }
+      if (d = styleDiff(e, cs)) {
+        c.setAttribute('style', d);
+      }
+      f = null;
+      if (e.tagName.toLowerCase() === 'text') {
+        f = {};
+        ctx.text(cs, e.textContent, f);
+      }
+      return {
+        c: c,
+        a: a,
+        f: f
+      };
+    };
+    groupAttrs = function(e, cs){
+      var ret, res$, i$, ref$, len$, at, ref1$, d;
+      res$ = [];
+      for (i$ = 0, len$ = (ref$ = Array.from(e.attributes)).length; i$ < len$; ++i$) {
+        at = ref$[i$];
+        if (!((ref1$ = at.name) === 'class' || ref1$ === 'style' || ref1$ === 'transform' || ref1$ === 'opacity')) {
+          res$.push(at.name + "=\"" + at.value.replace(/"/g, '&quot;') + "\"");
+        }
+      }
+      ret = res$;
+      if (d = styleDiff(e, cs)) {
+        ret.push("style=\"" + d.replace(/"/g, "'") + "\"");
+      }
+      return ret.join(' ');
+    };
+    sample = function(opt, ctx){
+      var el, seek, n, fps, from, recs, byEl, recOf, variant, walkSvg, walk, i$, i;
+      el = opt.el, seek = opt.seek, n = opt.n, fps = opt.fps, from = opt.from;
+      recs = [];
+      byEl = new Map;
+      recOf = function(e, parent){
+        var rec;
+        if (rec = byEl.get(e)) {
+          return rec;
+        }
+        rec = {
+          id: recs.length,
+          el: e,
+          parent: parent,
+          kids: [],
+          variants: [],
+          keys: new Map,
+          frames: []
+        };
+        recs.push(rec);
+        byEl.set(e, rec);
+        if (parent) {
+          parent.kids.push(rec);
+        }
+        return rec;
+      };
+      variant = function(rec, sig, make){
+        var v;
+        v = rec.keys.get(sig);
+        if (v == null) {
+          v = rec.variants.length;
+          rec.keys.set(sig, v);
+          rec.variants.push(make());
+        }
+        return v;
+      };
+      walkSvg = function(e, parent, i){
+        var cs, tag, rec, m, o, i$, ref$, len$, c, v, a, r;
+        cs = getComputedStyle(e);
+        if (cs.display === 'none') {
+          return;
+        }
+        tag = e.tagName.toLowerCase();
+        rec = recOf(e, parent);
+        if (in$(tag, SVGSTATIC)) {
+          if (!rec.kind) {
+            rec.kind = 'static';
+            rec.markup = xml(e);
+          } else if (xml(e) !== rec.markup) {
+            ctx.warn("<" + tag + "> changes over time: only the first frame is kept");
+          }
+          rec.frames[i] = {
+            m: IDENT,
+            o: 1,
+            b: 0,
+            v: -1
+          };
+          return;
+        }
+        m = svgMatrix(e, cs, ctx);
+        o = +cs.opacity;
+        if (cs.mixBlendMode !== 'normal') {
+          rec.blend = cs.mixBlendMode;
+        }
+        if (in$(tag, SVGGROUP)) {
+          if (!rec.kind) {
+            rec.kind = 'g';
+            rec.attrs = groupAttrs(e, cs);
+          }
+          rec.frames[i] = {
+            m: m,
+            o: o,
+            b: 0,
+            v: -1
+          };
+          for (i$ = 0, len$ = (ref$ = Array.from(e.children)).length; i$ < len$; ++i$) {
+            c = ref$[i$];
+            walkSvg(c, rec, i);
+          }
+          return;
+        }
+        rec.kind = 'leaf';
+        v = -1;
+        a = null;
+        if (cs.visibility === 'visible' && o > 0) {
+          r = leaf(e, cs, ctx);
+          a = r.a;
+          v = variant(rec, xml(r.c), function(){
+            return {
+              c: r.c,
+              f: r.f
+            };
+          });
+        }
+        return rec.frames[i] = {
+          m: m,
+          o: o,
+          b: 0,
+          v: v,
+          a: a
+        };
+      };
+      walk = function(e, parent, i, depth){
+        var cs, tag, rec, ref$, x, y, w, h, m, masked, i$, len$, c, blur, elems, hasText, atomic, v, node, st, k, laters, results$ = [];
+        cs = getComputedStyle(e);
+        if (cs.display === 'none') {
+          return;
+        }
+        tag = e.tagName.toLowerCase();
+        rec = recOf(e, parent);
+        ref$ = box(e, e.parentNode, cs, ctx), x = ref$[0], y = ref$[1], w = ref$[2], h = ref$[3];
+        m = depth === 0
+          ? IDENT
+          : motionMatrix(x, y, cs, ctx);
+        rec.blend = cs.mixBlendMode !== 'normal' ? cs.mixBlendMode : null;
+        if (cs.zIndex !== 'auto') {
+          ctx.warn("z-index ignored ( dom order is used )");
+        }
+        masked = cs.maskImage !== 'none' || cs.clipPath !== 'none';
+        if (tag === 'svg' && !masked) {
+          if (!rec.kind) {
+            rec.kind = 'svg';
+            rec.vb = viewboxMatrix(e, w, h);
+            rec.clip = cs.overflow === 'visible'
+              ? null
+              : [w, h];
+            rec.style = styleDiff(e, cs);
+          }
+          rec.frames[i] = {
+            m: m,
+            o: +cs.opacity,
+            b: 0,
+            v: -1
+          };
+          if (+cs.opacity > 0) {
+            for (i$ = 0, len$ = (ref$ = Array.from(e.children)).length; i$ < len$; ++i$) {
+              c = ref$[i$];
+              walkSvg(c, rec, i);
+            }
+          }
+          return;
+        }
+        blur = blurOf(cs.filter);
+        elems = Array.from(e.children);
+        hasText = Array.from(e.childNodes).some(function(n){
+          return n.nodeType === 3 && n.textContent.trim();
+        });
+        atomic = (tag === 'img' || tag === 'canvas' || tag === 'svg') || masked || !(blur != null) || (hasText && elems.length);
+        rec.atomic = atomic;
+        if (cs.overflow !== 'visible' && !atomic && elems.length) {
+          rec.clip == null && (rec.clip = [w, h]);
+        }
+        v = -1;
+        if (cs.visibility === 'visible' && +cs.opacity > 0) {
+          ctx.laters = [];
+          node = convert(e, ctx, 1, {
+            own: !atomic,
+            nobake: true
+          });
+          if (node) {
+            st = node.props.style;
+            for (i$ = 0, len$ = (ref$ = ['position', 'left', 'top', 'transform', 'transformOrigin', 'opacity']).length; i$ < len$; ++i$) {
+              k = ref$[i$];
+              delete st[k];
+            }
+            if (blur != null) {
+              delete st.filter;
+            }
+            delete node.blend;
+            laters = ctx.laters;
+            v = variant(rec, JSON.stringify(node), function(){
+              return {
+                node: node,
+                w: w,
+                h: h,
+                laters: laters
+              };
+            });
+          }
+        }
+        rec.frames[i] = {
+          m: m,
+          o: +cs.opacity,
+          b: blur || 0,
+          v: v
+        };
+        if (!atomic && +cs.opacity > 0) {
+          for (i$ = 0, len$ = elems.length; i$ < len$; ++i$) {
+            c = elems[i$];
+            results$.push(walk(c, rec, i, depth + 1));
+          }
+          return results$;
+        }
+      };
+      for (i$ = 0; i$ < n; ++i$) {
+        i = i$;
+        if (opt.signal && opt.signal.aborted) {
+          throw new DOMException('aborted', 'AbortError');
+        }
+        seek(from + i / fps);
+        walk(el, null, i, 0);
+        if (opt.progress) {
+          opt.progress(0.5 * (i + 1) / n);
+        }
+      }
+      return recs;
+    };
+    PAD = 64;
+    draw = function(satori, fonts, rec, k, va){
+      var W, H, ref$;
+      W = va.w + 2 * PAD;
+      H = va.h + 2 * PAD;
+      ref$ = va.node.props.style;
+      ref$.position = 'absolute';
+      ref$.left = PAD;
+      ref$.top = PAD;
+      return satori({
+        type: 'div',
+        props: {
+          style: {
+            display: 'flex',
+            width: W,
+            height: H
+          },
+          children: [va.node]
+        }
+      }, {
+        width: W,
+        height: H,
+        fonts: fonts
+      }).then(function(svg){
+        var inner;
+        inner = svg.replace(/^<svg[^>]*>/, '').replace(/<\/svg>\s*$/, '').replace(/satori_/g, "s" + rec.id + "_" + k + "_");
+        return "<g transform=\"translate(" + (-PAD) + "," + (-PAD) + ")\">" + inner + "</g>";
+      });
+    };
+    attrTol = function(k){
+      if (/opacity/.test(k)) {
+        return 0.004;
+      } else {
+        return 0.05;
+      }
+    };
+    compose = function(recs, opt, fonts){
+      var n, fps, width, height, dur, css, fontNames, tail, series, rule, attrsOf, leafMarkup, out, body, faces, style;
+      n = opt.n, fps = opt.fps, width = opt.width, height = opt.height;
+      dur = n / fps;
+      css = [];
+      fontNames = new Set;
+      tail = opt.repeat ? ' infinite' : ' forwards';
+      series = function(frames){
+        var last, vals;
+        last = frames.find(function(it){
+          return it != null;
+        });
+        vals = frames.map(function(f){
+          return last = f != null ? f : last;
+        });
+        if (vals.every(function(v){
+          return v.every(function(x, j){
+            return x === vals[0][j];
+          });
+        })) {
+          return [vals, false];
+        } else {
+          return [vals, true];
+        }
+      };
+      rule = function(cls, base, frames, prop, tol, val, step){
+        var ref$, vals, varies, idx, i, kf, name;
+        ref$ = series(frames), vals = ref$[0], varies = ref$[1];
+        if (!varies) {
+          base.push(prop + ":" + val(vals[0]));
+          return;
+        }
+        idx = step
+          ? (function(){
+            var i$, to$, results$ = [];
+            for (i$ = 0, to$ = n; i$ < to$; ++i$) {
+              i = i$;
+              if (i === 0 || vals[i].join() !== vals[i - 1].join()) {
+                results$.push(i);
+              }
             }
             return results$;
           }())
+          : simplify(vals, tol);
+        kf = idx.map(function(i){
+          return pct(i, n) + "{" + prop + ":" + val(vals[i]) + "}";
+        }).join('') + ("100%{" + prop + ":" + val(vals[n - 1]) + "}");
+        name = cls + "-" + prop.replace(/[^a-z]/g, '');
+        css.push("@keyframes " + name + "{" + kf + "}");
+        base.push(prop + ":" + val(vals[0]));
+        return name;
+      };
+      attrsOf = function(rec){
+        var F, keys, i$, len$, f, k, ret;
+        F = rec.frames;
+        keys = new Set;
+        for (i$ = 0, len$ = F.length; i$ < len$; ++i$) {
+          f = F[i$];
+          if (f && f.a) {
+            for (k in f.a) {
+              keys.add(k);
+            }
+          }
+        }
+        ret = [];
+        keys.forEach(function(k){
+          var ref$, vals, varies, idx, times, vs;
+          ref$ = series((function(){
+            var i$, to$, results$ = [];
+            for (i$ = 0, to$ = n; i$ < to$; ++i$) {
+              results$.push(i$);
+            }
+            return results$;
+          }()).map(function(i){
+            if (F[i] && F[i].a && F[i].a[k] != null) {
+              return [F[i].a[k]];
+            } else {
+              return null;
+            }
+          })), vals = ref$[0], varies = ref$[1];
+          if (!varies) {
+            return ret.push([k, fmt(vals[0][0])]);
+          }
+          idx = simplify(vals, [attrTol(k)]);
+          times = idx.map(function(i){
+            return i / n;
+          });
+          vs = idx.map(function(i){
+            return fmt(vals[i][0]);
+          });
+          if (times[times.length - 1] < 1) {
+            times.push(1);
+            vs.push(fmt(vals[n - 1][0]));
+          }
+          return ret.push([
+            k, fmt(vals[0][0]), {
+              times: times,
+              vs: vs
+            }
+          ]);
+        });
+        return ret;
+      };
+      leafMarkup = function(rec, va){
+        var c, i$, ref$, len$, ref1$, k, v, anim, a, f;
+        c = va.c;
+        for (i$ = 0, len$ = (ref$ = rec.tracks).length; i$ < len$; ++i$) {
+          ref1$ = ref$[i$], k = ref1$[0], v = ref1$[1], anim = ref1$[2];
+          c.setAttribute(k, v);
+          if (anim) {
+            a = document.createElementNS('http://www.w3.org/2000/svg', 'animate');
+            a.setAttribute('attributeName', k);
+            a.setAttribute('dur', dur + "s");
+            a.setAttribute('calcMode', 'linear');
+            a.setAttribute('keyTimes', anim.times.map(fn$).join(';'));
+            a.setAttribute('values', anim.vs.join(';'));
+            if (opt.repeat) {
+              a.setAttribute('repeatCount', 'indefinite');
+            } else {
+              a.setAttribute('fill', 'freeze');
+            }
+            c.appendChild(a);
+          }
+        }
+        if (va.f && va.f.fontFamily) {
+          c.setAttribute('style', (c.getAttribute('style') || '') + ";font-family:" + va.f.fontFamily);
+          for (i$ = 0, len$ = (ref$ = va.f.fontFamily.split(',')).length; i$ < len$; ++i$) {
+            f = ref$[i$];
+            fontNames.add(f.trim().replace(/'/g, ''));
+          }
+        }
+        return xml(c);
+        function fn$(it){
+          return +it.toFixed(5);
+        }
+      };
+      out = function(rec){
+        var cls, base, anims, F, at, name, opa, vs, kids, inner;
+        if (rec.kind === 'static') {
+          return rec.markup;
+        }
+        cls = "n" + rec.id;
+        base = [];
+        anims = [];
+        F = rec.frames;
+        at = function(f){
+          return (function(){
+            var i$, to$, results$ = [];
+            for (i$ = 0, to$ = n; i$ < to$; ++i$) {
+              results$.push(i$);
+            }
+            return results$;
+          }()).map(function(i){
+            if (F[i]) {
+              return f(F[i]);
+            } else {
+              return null;
+            }
+          });
         };
+        if (name = rule(cls, base, at(function(f){
+          return f.m;
+        }), 'transform', [0.005, 0.005, 0.005, 0.005, 0.25, 0.25], function(v){
+          return "matrix(" + v.map(fmt).join(',') + ")";
+        }, false)) {
+          anims.push(name + " " + dur + "s linear");
+        }
+        opa = (function(){
+          var i$, to$, results$ = [];
+          for (i$ = 0, to$ = n; i$ < to$; ++i$) {
+            results$.push(i$);
+          }
+          return results$;
+        }()).map(function(i){
+          return [F[i] ? F[i].o : 0];
+        });
+        if (name = rule(cls, base, opa, 'opacity', [0.004], function(v){
+          return fmt(v[0]);
+        }, false)) {
+          anims.push(name + " " + dur + "s linear");
+        }
+        if (name = rule(cls, base, at(function(f){
+          return [f.b];
+        }), 'filter', [0.05], function(v){
+          if (v[0] > 0.01) {
+            return "blur(" + fmt(v[0]) + "px)";
+          } else {
+            return 'none';
+          }
+        }, false)) {
+          anims.push(name + " " + dur + "s linear");
+        }
+        if (rec.blend) {
+          base.push("mix-blend-mode:" + rec.blend);
+        }
+        if (anims.length) {
+          base.push("animation:" + anims.map(function(it){
+            return it + tail;
+          }).join(','));
+        }
+        css.push("." + cls + "{" + base.join(';') + "}");
+        if (rec.kind === 'leaf') {
+          rec.tracks = attrsOf(rec);
+        }
+        vs = rec.variants.map(function(va, k){
+          var vcls, vb, shown, name;
+          vcls = cls + "v" + k;
+          vb = [];
+          shown = (function(){
+            var i$, to$, results$ = [];
+            for (i$ = 0, to$ = n; i$ < to$; ++i$) {
+              results$.push(i$);
+            }
+            return results$;
+          }()).map(function(i){
+            return [F[i] && F[i].v === k ? 1 : 0];
+          });
+          if (name = rule(vcls, vb, shown, 'visibility', [0.5], function(v){
+            if (v[0]) {
+              return 'visible';
+            } else {
+              return 'hidden';
+            }
+          }, true)) {
+            vb.push("animation:" + name + " " + dur + "s step-end" + tail);
+          }
+          css.push("." + vcls + "{" + vb.join(';') + "}");
+          return "<g class=\"" + vcls + "\">" + (rec.kind === 'leaf'
+            ? leafMarkup(rec, va)
+            : va.svg) + "</g>";
+        });
+        kids = rec.kids.map(out).join('');
+        if (rec.kind === 'svg') {
+          inner = "<g transform=\"matrix(" + rec.vb.map(fmt).join(',') + ")\" style=\"" + rec.style.replace(/"/g, "'") + "\">" + kids + "</g>";
+          if (rec.clip) {
+            inner = "<clipPath id=\"c" + rec.id + "\"><rect width=\"" + rec.clip[0] + "\" height=\"" + rec.clip[1] + "\"/></clipPath><g clip-path=\"url(" + c + rec.id + ")\">" + inner + "</g>";
+          }
+          return "<g class=\"" + cls + "\">" + inner + "</g>";
+        }
+        if (rec.kind === 'g') {
+          return "<g class=\"" + cls + "\" " + rec.attrs + ">" + kids + "</g>";
+        }
+        if (rec.clip && kids) {
+          kids = "<clipPath id=\"c" + rec.id + "\"><rect width=\"" + rec.clip[0] + "\" height=\"" + rec.clip[1] + "\"/></clipPath><g clip-path=\"url(" + c + rec.id + ")\">" + kids + "</g>";
+        }
+        return "<g class=\"" + cls + "\">" + vs.join('') + kids + "</g>";
+      };
+      body = out(recs[0]);
+      faces = fonts.filter(function(it){
+        return fontNames.has(it.name);
+      }).map(function(f){
+        return ("@font-face{font-family:'" + f.name + "';font-weight:" + f.weight + ";font-style:" + f.style + ";") + ("src:url(data:font/ttf;base64," + b64Bytes(f.data) + ") format('truetype')}");
+      });
+      style = faces.join('') + "g{transform-box:view-box;transform-origin:0 0}" + css.join('');
+      return "<svg width=\"" + width + "\" height=\"" + height + "\" viewBox=\"0 0 " + width + " " + height + "\" xmlns=\"http://www.w3.org/2000/svg\"><style>" + style + "</style>" + body + "</svg>";
+    };
+    animate = function(opt){
+      var ctx, fps, from, to, ref$, n, el, o, t0, recs, t1, fonts;
+      opt == null && (opt = {});
+      ctx = makeCtx();
+      fps = opt.fps || 30;
+      from = opt.from || 0;
+      to = (ref$ = opt.to) != null
+        ? ref$
+        : opt.duration;
+      n = Math.max(1, Math.round((to - from) * fps));
+      el = opt.el;
+      o = {
+        el: el,
+        seek: opt.seek,
+        n: n,
+        fps: fps,
+        from: from,
+        signal: opt.signal,
+        progress: opt.progress
+      };
+      t0 = performance.now();
+      recs = sample(o, ctx);
+      t1 = performance.now();
+      fonts = null;
+      return prepare(ctx, opt).then(function(arg$){
+        var satori, f, jobs, i$, ref$, len$, rec, j$, ref1$, len1$, k, va, step;
+        satori = arg$[0], f = arg$[1];
+        fonts = f;
+        jobs = [];
+        for (i$ = 0, len$ = (ref$ = recs).length; i$ < len$; ++i$) {
+          rec = ref$[i$];
+          if (!rec.kind) {
+            for (j$ = 0, len1$ = (ref1$ = rec.variants).length; j$ < len1$; ++j$) {
+              k = j$;
+              va = ref1$[j$];
+              jobs.push([rec, k, va]);
+            }
+          }
+        }
+        step = function(i){
+          var ref$, rec, k, va, i$, len$, f;
+          if (i >= jobs.length) {
+            return;
+          }
+          ref$ = jobs[i], rec = ref$[0], k = ref$[1], va = ref$[2];
+          for (i$ = 0, len$ = (ref$ = va.laters).length; i$ < len$; ++i$) {
+            f = ref$[i$];
+            f(fonts);
+          }
+          return draw(satori, fonts, rec, k, va).then(function(svg){
+            va.svg = svg;
+            if (opt.progress) {
+              opt.progress(0.5 + 0.5 * (i + 1) / jobs.length);
+            }
+            return step(i + 1);
+          });
+        };
+        return step(0);
+      }).then(function(){
+        var svg, ref$, count, stats;
+        svg = compose(recs, {
+          n: n,
+          fps: fps,
+          repeat: (ref$ = opt.loop) != null ? ref$ : true,
+          width: opt.width || el.offsetWidth,
+          height: opt.height || el.offsetHeight
+        }, fonts);
+        count = function(k){
+          return recs.filter(function(r){
+            return (r.kind || 'html') === k;
+          }).reduce(function(a, r){
+            return a + r.variants.length;
+          }, 0);
+        };
+        stats = {
+          frames: n,
+          elements: recs.length,
+          variants: {
+            html: count('html'),
+            svg: count('leaf')
+          },
+          sampleMs: Math.round(t1 - t0),
+          totalMs: Math.round(performance.now() - t0),
+          bytes: svg.length
+        };
+        return {
+          svg: svg,
+          warnings: ctx.warnings(),
+          stats: stats
+        };
+      });
+    };
+    lotion.animate = animate;
+    lotion.player.prototype.animate = function(opt){
+      var t0, p, this$ = this;
+      opt == null && (opt = {});
+      this.pause();
+      t0 = this.t;
+      p = Promise.resolve().then(function(){
+        return animate(import$({
+          el: this$.stage,
+          seek: this$.opt.seek,
+          duration: this$.duration,
+          width: this$.width,
+          height: this$.height
+        }, opt));
+      });
+      return p['finally'](function(){
+        return this$.opt.seek(t0);
       });
     };
     lotion.vector = vector;
@@ -813,5 +1642,10 @@
     var i = -1, l = xs.length >>> 0;
     while (++i < l) if (x === xs[i]) return true;
     return false;
+  }
+  function import$(obj, src){
+    var own = {}.hasOwnProperty;
+    for (var key in src) if (own.call(src, key)) obj[key] = src[key];
+    return obj;
   }
 }).call(this);

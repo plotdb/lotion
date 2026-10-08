@@ -39,3 +39,35 @@ viewer = (p, root) ->
     a <<< {href: url, download: "lotion-#{last.toFixed(2)}s.svg"}
     a.click!
   q(\open).addEventListener \click, -> if url => window.open url
+
+# 動畫 svg: 把整段動畫轉成一個 svg ( lotion.animate ), 以 <img> 播放.
+#  - root 內含 .a-go / .a-fps / .a-img / .a-stat / .a-warn / .a-dl / .a-open
+anim-viewer = (p, root) ->
+  q = (n) -> root.querySelector ".a-#n"
+  url = null
+  q(\go).addEventListener \click, ->
+    q(\go).disabled = true
+    q(\stat).textContent = '轉換中…'
+    p.animate do
+      fps: +q(\fps).value
+      progress: (v) -> q(\stat).textContent = "轉換中… #{Math.round v * 100}%"
+    .then ({svg, warnings, stats}) ->
+      if url => URL.revokeObjectURL url
+      url := URL.createObjectURL new Blob([svg], type: 'image/svg+xml')
+      q(\img).src = url
+      v = stats.variants
+      q(\stat).textContent = "#{stats.frames} 格 · #{stats.elements} 個元素 · 變體 #{v.html} ( html ) + #{v.svg} ( svg ) · " +
+        "#{(stats.total-ms / 1000).toFixed(1)} 秒 · #{(stats.bytes / 1024).toFixed(0)} KB"
+      q(\warn).innerHTML = if warnings.length
+        warnings.map(-> "<li>#{it.replace(/</g, '&lt;')}</li>").join('')
+      else '<li class="ok">無警告</li>'
+    .catch (e) ->
+      q(\stat).textContent = "轉換失敗：#{e.message}"
+      console.error e
+    .then -> q(\go).disabled = false
+  q(\dl).addEventListener \click, ->
+    if !url => return
+    a = document.createElement \a
+    a <<< {href: url, download: 'lotion-animated.svg'}
+    a.click!
+  q(\open).addEventListener \click, -> if url => window.open url

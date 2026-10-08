@@ -1,3 +1,17 @@
+## master
+
+ - features:
+   - `lotion.animate(opt)` / `player.animate(opt)` ( experimental, in `vector.js` ): convert a whole animation into one
+     animated svg. each element becomes a `<g>` nested as in the dom; its motion ( position and transform as a matrix,
+     opacity, blur ) is sampled per frame and written as css keyframes, simplified to the points linear interpolation
+     needs; each distinct appearance is drawn once by satori and switched by visibility. inline svg is walked
+     natively: groups animate, leaves keep their markup with numeric attributes as smil `<animate>`, definitions are
+     written once, and text uses fonts embedded once. `mix-blend-mode` now works at any depth.
+   - demo: the `/vector/` page converts the whole animation and plays the animated svg
+ - tweaks:
+   - vector: inline svg keeps a content-based placeholder `src` until fonts are ready
+
+
 ## v0.3.0
 
  - features:

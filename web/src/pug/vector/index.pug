@@ -34,6 +34,18 @@ html(lang="zh-Hant-TW")
             button.v-dl 下載 svg
             button.v-open 新分頁開啟
           ul.v-warn
+      .v-anim#anim
+        .v-label 動畫 SVG ( 整段轉成一個 svg，以 css 與 smil 播放 )
+        .v-bar
+          select.a-fps
+            option(value="10") 10 fps
+            option(value="30",selected) 30 fps
+          button.a-go 轉成動畫 svg
+          span.a-stat
+          button.a-dl 下載 svg
+          button.a-open 新分頁開啟
+        .v-box.a-box: img.a-img
+        ul.v-warn.a-warn
       p.hint 第一次轉換需要載入 satori、字型解壓與 HarfBuzz，會慢一些。svg 中的文字已轉成 path，字型不需另外安裝。
     +script([{name: "lotion", version: "dev", path: "index.js", defer: false}, {name: "lotion", version: "dev", path: "vector.js", defer: false}])
     script(type="text/javascript")
@@ -42,3 +54,4 @@ html(lang="zh-Hant-TW")
     script(type="text/javascript"): :lsc
       p = scene window.lotion, document.querySelector('#demo')
       viewer p, document.querySelector('#viewer')
+      anim-viewer p, document.querySelector('#anim')
