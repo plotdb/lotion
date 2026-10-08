@@ -58,6 +58,21 @@ do ->
     btoa bin
   b64 = (str) -> b64-bytes new TextEncoder!encode(str)
   svg-uri = (xml) -> "data:image/svg+xml;base64,#{b64 xml}"
+  # computed 的 box-shadow / text-shadow 把顏色放在最前 ( "rgba(...) 0px 10px 30px -12px" ), satori 要求顏色在後,
+  # 否則畫出壞掉的 path: 改成 "位移 模糊 擴散 顏色 [inset]"
+  fix-shadow = (v) ->
+    parts = []
+    [depth, cur] = [0, '']
+    for ch in v
+      if ch == '(' => depth++
+      if ch == ')' => depth--
+      if ch == ',' and depth == 0 => parts.push cur.trim!; cur = ''
+      else cur += ch
+    parts.push cur.trim!
+    parts.map((p) ->
+      if !(m = /^((?:rgba?|hsla?|color)\([^)]*\)|#[0-9a-f]+|[a-z]+)\s+(.*)$/i.exec p) or m.1 == \inset => return p
+      "#{m.2} #{m.1}"
+    ).join ', '
   # css 值中的 url("data:image/svg+xml;utf8,...") 也轉成 base64
   fix-uri = (v) ->
     v.replace /url\("data:image\/svg\+xml(?:;charset=[^,;]+)?(?:;utf8)?,([^"]*)"\)/g, (m, d) ->
@@ -176,7 +191,7 @@ do ->
       if !texts.length and k in text-props => continue
       v = cs[k]
       if !v or skip[k] == v => continue
-      style[k] = if /data:image\/svg/.test(v) => fix-uri(v) else v
+      style[k] = if /data:image\/svg/.test(v) => fix-uri(v) else if k in <[boxShadow textShadow]> => fix-shadow(v) else v
     for s in <[Top Right Bottom Left]> => if !style["border#{s}Width"] => delete style["border#{s}Color"]
     # satori 的 overflow 只有 visible / hidden
     if style.overflow => style.overflow = \hidden

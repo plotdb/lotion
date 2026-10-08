@@ -1,6 +1,6 @@
 (function(){
   (function(){
-    var lotion, ref$, props, skip, i$, len$, s, c, textProps, unsupported, b64Bytes, b64, svgUri, fixUri, box, svgProps, svgSrc, bakeTransform, convert, fontCache, unquote, parseRange, parseSrc, faceOf, facesInText, facesInSheet, allFaces, getFaces, loadFont, hb, getHb, WGHT, subset, clamp, weightRank, fontsFor, render, makeCtx, prepare, vector, IDENT, mul, parseMatrix, motionMatrix, svgMatrix, viewboxMatrix, blurOf, simplify, fmt, pct, SVGGROUP, SVGSTATIC, NUMATTRS, NUMPROPS, LEAFSTYLE, POSATTRS, NUMERIC, xml, styleDiff, leaf, groupAttrs, splitTop, rgba, maskOf, sample, drawOn, PAD, draw, attrTol, compose, animate;
+    var lotion, ref$, props, skip, i$, len$, s, c, textProps, unsupported, b64Bytes, b64, svgUri, fixShadow, fixUri, box, svgProps, svgSrc, bakeTransform, convert, fontCache, unquote, parseRange, parseSrc, faceOf, facesInText, facesInSheet, allFaces, getFaces, loadFont, hb, getHb, WGHT, subset, clamp, weightRank, fontsFor, render, makeCtx, prepare, vector, IDENT, mul, parseMatrix, motionMatrix, svgMatrix, viewboxMatrix, blurOf, simplify, fmt, pct, SVGGROUP, SVGSTATIC, NUMATTRS, NUMPROPS, LEAFSTYLE, POSATTRS, NUMERIC, xml, styleDiff, leaf, groupAttrs, splitTop, rgba, maskOf, sample, drawOn, PAD, draw, attrTol, compose, animate;
     lotion = window.lotion;
     ref$ = lotion.libs;
     ref$.satori = 'https://cdn.jsdelivr.net/npm/satori@0.36.0/+esm';
@@ -61,6 +61,34 @@
     };
     svgUri = function(xml){
       return "data:image/svg+xml;base64," + b64(xml);
+    };
+    fixShadow = function(v){
+      var parts, ref$, depth, cur, i$, len$, ch;
+      parts = [];
+      ref$ = [0, ''], depth = ref$[0], cur = ref$[1];
+      for (i$ = 0, len$ = v.length; i$ < len$; ++i$) {
+        ch = v[i$];
+        if (ch === '(') {
+          depth++;
+        }
+        if (ch === ')') {
+          depth--;
+        }
+        if (ch === ',' && depth === 0) {
+          parts.push(cur.trim());
+          cur = '';
+        } else {
+          cur += ch;
+        }
+      }
+      parts.push(cur.trim());
+      return parts.map(function(p){
+        var m;
+        if (!(m = /^((?:rgba?|hsla?|color)\([^)]*\)|#[0-9a-f]+|[a-z]+)\s+(.*)$/i.exec(p)) || m[1] === 'inset') {
+          return p;
+        }
+        return m[2] + " " + m[1];
+      }).join(', ');
     };
     fixUri = function(v){
       return v.replace(/url\("data:image\/svg\+xml(?:;charset=[^,;]+)?(?:;utf8)?,([^"]*)"\)/g, function(m, d){
@@ -264,7 +292,9 @@
         if (!v || skip[k] === v) {
           continue;
         }
-        style[k] = /data:image\/svg/.test(v) ? fixUri(v) : v;
+        style[k] = /data:image\/svg/.test(v)
+          ? fixUri(v)
+          : k === 'boxShadow' || k === 'textShadow' ? fixShadow(v) : v;
       }
       for (i$ = 0, len$ = (ref$ = ['Top', 'Right', 'Bottom', 'Left']).length; i$ < len$; ++i$) {
         s = ref$[i$];

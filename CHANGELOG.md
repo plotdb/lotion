@@ -1,3 +1,10 @@
+## master
+
+ - bug fix:
+   - vector / animate: box-shadow and text-shadow are reordered to "offsets blur spread color", since computed style
+     puts the color first and satori then drew a broken path, so shadows were missing
+
+
 ## v0.4.0
 
  - features:
