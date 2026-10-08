@@ -10,7 +10,7 @@
      fonts pinned to the used weight. root-level `mix-blend-mode` is composed as svg layers; inline svg is embedded
      with its computed styles, referenced external defs and fonts.
    - `lotion.lib(name)`: load an on-demand dependency listed in `lotion.libs`
-   - demo: `/vector/` compares the player with its converted svg side by side
+   - demo: `/vector/` compares the player with its converted svg side by side; the block demo loads `vector.min.js`
 
 
 ## v0.2.1

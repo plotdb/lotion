@@ -129,6 +129,9 @@ final renders, the cli remains faster ( `--workers` ) and exact.
     lotion.vector(el).then ({svg, warnings}) -> ...
     player.vector(t).then ({svg, warnings}) -> ...   # the frame at t, without moving the player
 
+`vector.js` extends the `lotion` object loaded before it, so load it after `index.js`. In a block, declare it as a
+dependency after lotion ( `{name: 'lotion', path: 'vector.min.js'}` ); rescope gives it the same `lotion`.
+
  - layout is read from the browser ( `offsetLeft` / `offsetWidth` ... ) and every element becomes an absolutely
    positioned satori node with its computed style; text becomes paths.
  - fonts are collected from the page's `@font-face` rules by the families, weights and characters in use, following
