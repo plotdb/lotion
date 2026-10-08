@@ -1,4 +1,4 @@
-## master
+## v0.3.0
 
  - features:
    - `player.encode(opt)` / `lotion.encode(opt)`: render to mp4 in the browser ( snapdom capture, WebCodecs encode via
