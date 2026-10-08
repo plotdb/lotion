@@ -1,5 +1,5 @@
 (function(){
-  var PI, sin, cos, exp, sqrt, round, clamp, lerp, ss, spring, presets, track, vis, bump, typing, hex, mixc, rgb, mk, put, txt, NS, svg, player, ref$, lotion;
+  var PI, sin, cos, exp, sqrt, round, clamp, lerp, ss, spring, presets, track, vis, bump, typing, hex, mixc, rgb, mk, put, txt, NS, svg, player, ref$, libs, libCache, lib, encode, lotion;
   PI = Math.PI, sin = Math.sin, cos = Math.cos, exp = Math.exp, sqrt = Math.sqrt, round = Math.round;
   clamp = function(v, a, b){
     a == null && (a = 0);
@@ -338,6 +338,9 @@
     });
   }, ref$.fit = function(){
     var w, h, s;
+    if (this.encoding) {
+      return;
+    }
     w = this.viewport.clientWidth;
     h = this.viewport.clientHeight;
     if (!w || !h) {
@@ -349,7 +352,7 @@
     return Math.floor(t / 60) + ":" + ("0" + Math.floor(t % 60)).slice(-2);
   }, ref$.seek = function(t){
     var p, ch;
-    if (!this.started) {
+    if (!this.started || this.encoding) {
       return;
     }
     this.t = t = clamp(t, 0, this.duration);
@@ -382,7 +385,7 @@
   }, ref$.play = function(go){
     var this$ = this;
     go == null && (go = true);
-    if (!this.started) {
+    if (!this.started || this.encoding) {
       return;
     }
     if (go && this.t >= this.duration) {
@@ -409,7 +412,177 @@
       (this.root.requestFullscreen || this.root.webkitRequestFullscreen).call(this.root);
     }
     return this.root.focus();
+  }, ref$.encode = function(opt){
+    var t0, tf, cover, bar, done, progress, ref$, this$ = this;
+    opt == null && (opt = {});
+    if (!this.started) {
+      return Promise.reject(new Error('[lotion] encode() before start()'));
+    }
+    if (this.encoding) {
+      return Promise.reject(new Error('[lotion] already encoding'));
+    }
+    this.pause();
+    t0 = this.t;
+    this.encoding = true;
+    this.root.classList.add('lotion-encoding');
+    tf = this.stage.style.transform;
+    this.stage.style.transform = 'none';
+    cover = mk('lotion-encoding-screen', '<div class="lotion-spinner"></div><div class="lotion-progress"></div>', this.viewport);
+    bar = cover.querySelector('.lotion-progress');
+    done = function(){
+      cover.remove();
+      this$.stage.style.transform = tf;
+      this$.encoding = false;
+      this$.root.classList.remove('lotion-encoding');
+      this$.fit();
+      return this$.seek(t0);
+    };
+    progress = function(v){
+      bar.textContent = Math.round(v * 100) + "%";
+      if (opt.progress) {
+        return opt.progress(v);
+      }
+    };
+    return encode((ref$ = import$({
+      el: this.stage,
+      seek: this.opt.seek,
+      duration: this.duration,
+      width: this.width,
+      height: this.height
+    }, opt), ref$.progress = progress, ref$)).then(function(b){
+      done();
+      return b;
+    })['catch'](function(e){
+      done();
+      throw e;
+    });
   }, ref$);
+  libs = {
+    snapdom: 'https://cdn.jsdelivr.net/npm/@zumer/snapdom@3.3.0/dist/snapdom.mjs',
+    mediabunny: 'https://cdn.jsdelivr.net/npm/mediabunny@1.61.3/dist/bundles/mediabunny.min.mjs'
+  };
+  libCache = {};
+  lib = function(name){
+    var ref$;
+    return (ref$ = libCache[name]) != null
+      ? ref$
+      : libCache[name] = import(libs[name]);
+  };
+  encode = function(opt){
+    var even, w, h, fps, sub, d, ref$, from, to, n, bg, abort, output, that;
+    opt == null && (opt = {});
+    if (typeof VideoEncoder === 'undefined') {
+      return Promise.reject(new Error('[lotion] WebCodecs ( VideoEncoder ) is not supported in this browser'));
+    }
+    even = function(v){
+      return 2 * Math.round(v / 2);
+    };
+    w = even(opt.width || 1920);
+    h = even(opt.height || 1080);
+    fps = opt.fps || 30;
+    sub = Math.max(1, Math.round(opt.sub || 1));
+    d = ((ref$ = opt.shutter) != null ? ref$ : 0.5) / fps / sub;
+    from = opt.from || 0;
+    to = (ref$ = opt.to) != null
+      ? ref$
+      : opt.duration;
+    n = Math.max(1, Math.round((to - from) * fps));
+    bg = opt.background || getComputedStyle(opt.el).backgroundColor;
+    if (!bg || bg === 'rgba(0, 0, 0, 0)' || bg === 'transparent') {
+      bg = '#000';
+    }
+    abort = function(){
+      if (opt.signal && opt.signal.aborted) {
+        throw new DOMException('export aborted', 'AbortError');
+      }
+    };
+    output = null;
+    return Promise.all([
+      (that = opt.snapdom)
+        ? Promise.resolve(that)
+        : lib('snapdom'), (that = opt.mediabunny)
+        ? Promise.resolve(that)
+        : lib('mediabunny')
+    ]).then(function(arg$){
+      var sd, mb, snap, canvas, ctx;
+      sd = arg$[0], mb = arg$[1];
+      snap = sd.snapdom || sd;
+      canvas = document.createElement('canvas');
+      canvas.width = w;
+      canvas.height = h;
+      ctx = canvas.getContext('2d');
+      return mb.getFirstEncodableVideoCodec(['avc', 'vp9', 'av1'], {
+        width: w,
+        height: h
+      }).then(function(codec){
+        var src;
+        if (!codec) {
+          throw new Error("[lotion] no encodable video codec for " + w + "x" + h);
+        }
+        output = new mb.Output({
+          format: new mb.Mp4OutputFormat({
+            fastStart: 'in-memory'
+          }),
+          target: new mb.BufferTarget()
+        });
+        src = new mb.CanvasSource(canvas, {
+          codec: codec,
+          bitrate: opt.bitrate || mb.QUALITY_HIGH
+        });
+        output.addVideoTrack(src, {
+          frameRate: fps
+        });
+        return output.start().then(function(){
+          return src;
+        });
+      }).then(function(src){
+        var pending, step;
+        pending = Promise.resolve();
+        step = function(i, j){
+          var t;
+          abort();
+          if (i >= n) {
+            return pending;
+          }
+          if (j >= sub) {
+            return pending.then(function(){
+              abort();
+              pending = src.add(i / fps, 1 / fps);
+              if (opt.progress) {
+                opt.progress((i + 1) / n);
+              }
+              return step(i + 1, 0);
+            });
+          }
+          t = clamp(from + i / fps + (sub > 1 ? (j - (sub - 1) / 2) * d : 0), 0, opt.duration);
+          opt.seek(t);
+          return snap.toCanvas(opt.el, {
+            width: w,
+            height: h,
+            dpr: 1,
+            backgroundColor: bg
+          }).then(function(c){
+            ctx.globalAlpha = 1 / (j + 1);
+            ctx.drawImage(c, 0, 0, w, h);
+            return step(i, j + 1);
+          });
+        };
+        return step(0, 0);
+      });
+    }).then(function(){
+      return output.finalize();
+    }).then(function(){
+      return new Blob([output.target.buffer], {
+        type: 'video/mp4'
+      });
+    })['catch'](function(e){
+      var ref$;
+      if (output && ((ref$ = output.state) === 'started' || ref$ === 'pending')) {
+        output.cancel();
+      }
+      throw e;
+    });
+  };
   lotion = {
     clamp: clamp,
     lerp: lerp,
@@ -427,11 +600,19 @@
     put: put,
     txt: txt,
     svg: svg,
-    player: player
+    player: player,
+    encode: encode,
+    libs: libs,
+    lib: lib
   };
   if (typeof module != 'undefined' && module !== null) {
     module.exports = lotion;
   } else if (typeof window != 'undefined' && window !== null) {
     window.lotion = lotion;
+  }
+  function import$(obj, src){
+    var own = {}.hasOwnProperty;
+    for (var key in src) if (own.call(src, key)) obj[key] = src[key];
+    return obj;
   }
 }).call(this);

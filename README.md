@@ -55,7 +55,8 @@ player options:
  - `loading`: what to show before `start()`. default `true` ( a spinner ); a string is used as custom html;
    `false` shows nothing.
 
-player methods: `start()`, `seek(t)`, `play(go = true)`, `pause()`, `toggle()`, `fullscreen()`.
+player methods: `start()`, `seek(t)`, `play(go = true)`, `pause()`, `toggle()`, `fullscreen()`, `encode(opt)`
+( see Online Export ).
 `player.ready` is a promise resolved by `start()`.
 
 Until `start()` is called, the stage is hidden behind the loading screen, the control bar is disabled, and
@@ -81,6 +82,73 @@ helpers:
    transparent; pass `hide: false` for nested elements, since a visible child overrides a hidden parent.
  - `txt(el, html)`: set innerHTML only when changed.
  - `svg(tag, attrs, parent)`: create an svg element.
+
+
+## Online Export
+
+`player.encode(opt)` renders the animation to mp4 inside the browser, with no server: it seeks frame by frame, captures
+the stage with [snapdom](https://github.com/zumerlab/snapdom) and encodes with WebCodecs through
+[mediabunny](https://github.com/Vanilagy/mediabunny). Returns a promise of a `Blob` ( `video/mp4` ).
+
+    p.encode({fps: 30, progress: (v) -> console.log v})
+      .then (blob) -> a.href = URL.createObjectURL(blob)
+
+options:
+
+ - `width`, `height`: output size, default the player's design size; rounded to even numbers.
+ - `fps`: default `30`. `from`, `to`: render only a range, in seconds.
+ - `sub`, `shutter`: motion blur, as in the cli.
+ - `bitrate`: in bps. default mediabunny's `QUALITY_HIGH` for the size.
+ - `background`: default the stage's background color; black when transparent, since mp4 has no alpha.
+ - `progress(v)`: `0..1`. `signal`: an `AbortSignal`; aborting rejects with an `AbortError`.
+
+While encoding, the player is paused and locked, the stage is shown unscaled ( snapdom pads a scaled element by a few
+pixels, which shrinks the frame slightly ) behind a cover showing the progress, and afterwards it returns to the time
+it was at.
+
+snapdom and mediabunny are loaded by dynamic `import()` only when encoding, from jsdelivr by default. Point
+`lotion.libs.snapdom` / `lotion.libs.mediabunny` to self-hosted ES module builds
+( `@zumer/snapdom/dist/snapdom.mjs`, `mediabunny/dist/bundles/mediabunny.min.mjs` ), or pass loaded modules as
+`opt.snapdom` / `opt.mediabunny`. `lotion.encode({el, seek, duration, ...})` does the same for any element, such as a
+block; `el` should not be scaled by a transform.
+
+Frames match the cli's closely ( about 49 dB PSNR on the demo, the remaining difference being compression ), since
+both are rasterized by the browser; what snapdom cannot capture ( cross-origin images or fonts without CORS, iframes )
+differs. Requires `VideoEncoder` ( Chrome / Edge, Safari 16.4+, Firefox 130+ ). Speed is bound by snapdom cloning the
+DOM, not by resolution: the 17 seconds demo at 1080p30 takes about 46 seconds in Chrome on a development mac. For long or
+final renders, the cli remains faster ( `--workers` ) and exact.
+
+
+## Vector ( experimental )
+
+`dist/vector.js` converts the current frame into a vector svg with [satori](https://github.com/vercel/satori):
+
+    <script src="index.min.js"></script>
+    <script src="vector.min.js"></script>
+
+    lotion.vector(el).then ({svg, warnings}) -> ...
+    player.vector(t).then ({svg, warnings}) -> ...   # the frame at t, without moving the player
+
+`vector.js` extends the `lotion` object loaded before it, so load it after `index.js`. In a block, declare it as a
+dependency after lotion ( `{name: 'lotion', path: 'vector.min.js'}` ); rescope gives it the same `lotion`.
+
+ - layout is read from the browser ( `offsetLeft` / `offsetWidth` ... ) and every element becomes an absolutely
+   positioned satori node with its computed style; text becomes paths.
+ - fonts are collected from the page's `@font-face` rules by the families, weights and characters in use, following
+   `font-family` fallbacks and `unicode-range`. woff2 is decompressed ( woff2-encoder ), then each font is subset with
+   HarfBuzz, which also pins variable fonts ( as served by Google Fonts ) to the weight in use; satori would otherwise
+   draw only their default instance. Pass `opt.fonts` to provide fonts yourself.
+ - `mix-blend-mode` on children of the root is kept by converting the children in layers and stacking them with
+   svg `mix-blend-mode` ( honored by browsers, not by every svg viewer ).
+ - inline `<svg>` is embedded as an svg image with its computed styles, the external definitions it references and
+   the fonts its text needs. `<img>` and `<canvas>` are embedded as raster images.
+ - satori, woff2-encoder and the HarfBuzz subsetter ( wasm ) are loaded on demand; urls are in `lotion.libs`.
+ - what may differ is listed in `warnings`: blend on nested elements, text mixed with elements, characters without a
+   web font ( system fonts are not available ), mask or clip-path under a transform other than a translation
+   ( satori does not move masks with transforms ).
+
+On the demo and the sumi-ink trial of lotitor, frames rasterized from the svg match screenshots at 29 - 39 dB PSNR;
+the remaining difference is mostly text antialiasing and baselines in fixed line-heights. A frame takes 50 - 300 ms.
 
 
 ## Render protocol
@@ -137,6 +205,8 @@ options:
  - `--width 1920 --height 1080`: viewport size.
  - `--fps 60`, `--sub 1`, `--shutter 0.5`: video settings. with `--sub` greater than 1, each frame averages
    `sub` sub-samples spread over `shutter` of the frame interval ( motion blur, via ffmpeg `tmix` ).
+ - `--workers 1`: render a video with N browsers in parallel. frames are split into contiguous ranges, each encoded on
+   its own, then joined without re-encoding. since every frame depends on `t` only, the result matches a single worker.
  - `--from`, `--to`: render only a range, in seconds.
  - `--crf 16`: x264 quality.
  - `--cols 3`, `--tile 640`: contact sheet layout.
@@ -171,6 +241,14 @@ Guides for specific forms ( explainers, UI loops ) and for choosing a style move
 the packed block demo is generated from the running dev server:
 
     node dist/cli.js bundle http://localhost:<port> lotion-demo web/static/block/lotion-demo.bundle.html
+
+
+## Credits
+
+Releases up to v0.1.0 included `prompt/ui-loop.md`, derived from a prompt template posted by zero
+( [@twoclipping](https://x.com/twoclipping) ) on X on 2026-09-25: https://x.com/twoclipping/status/2103273003555402193 .
+The post says "im open sourcing the prompt template for these motion designs" but attaches no explicit license, so that
+file was never covered by lotion's MIT license; rights remain with the author. It is no longer part of lotion.
 
 
 ## License

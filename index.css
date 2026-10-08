@@ -124,14 +124,25 @@
   opacity: 0.5;
   pointer-events: none;
 }
-.lotion .lotion-loading-screen {
+.lotion.lotion-encoding .lotion-bar {
+  opacity: 0.5;
+  pointer-events: none;
+}
+.lotion .lotion-loading-screen,
+.lotion .lotion-encoding-screen {
   position: absolute;
   inset: 0;
   display: flex;
+  flex-direction: column;
+  gap: 12px;
   align-items: center;
   justify-content: center;
   background: var(--lotion-bg);
   color: var(--lotion-mute);
+}
+.lotion .lotion-progress {
+  font-size: 14px;
+  font-variant-numeric: tabular-nums;
 }
 .lotion .lotion-spinner {
   width: 36px;
