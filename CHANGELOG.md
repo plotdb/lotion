@@ -1,3 +1,11 @@
+## master
+
+ - features:
+   - `player.encode(opt)` / `lotion.encode(opt)`: render to mp4 in the browser ( snapdom capture, WebCodecs encode via
+     mediabunny ), both libraries loaded on demand by dynamic `import()`; urls configurable in `lotion.libs`
+   - demo: export button
+
+
 ## v0.2.1
 
  - features:

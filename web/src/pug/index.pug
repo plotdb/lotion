@@ -20,6 +20,17 @@ html(lang="zh-Hant-TW")
         可以拖曳、跳段，也能用 <code>lotion video</code> 逐格輸出成影片。
       #demo.demo
       p.hint 點畫面或按空白鍵播放 / 暫停，← / → 切換段落，F 全螢幕。
+      .export
+        select.export-fps
+          option(value="30") 30 fps
+          option(value="60") 60 fps
+        select.export-size
+          option(value="1") 1920 × 1080
+          option(value="0.5") 960 × 540
+        button.export-go 匯出 mp4
+        button.export-stop(hidden) 取消
+        span.export-msg
+      p.hint 線上匯出：在瀏覽器中逐格截圖 ( snapdom ) 並以 WebCodecs 編碼，不需要伺服器。
       p.hint 載入畫面：內容在 <code>start()</code> 之前不會顯示。此頁刻意延遲 1.5 秒，網址加上 <code>?loading=毫秒</code> 可調整，0 為不延遲。
       p.hint 同一段動畫的 block 版本：<a href="/block/">registry 模式</a>、<a href="/block/packed.html">packed 模式</a>。
     +script([{name: "lotion", version: "dev", path: "index.js", defer: false}])

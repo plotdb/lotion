@@ -55,7 +55,8 @@ player options:
  - `loading`: what to show before `start()`. default `true` ( a spinner ); a string is used as custom html;
    `false` shows nothing.
 
-player methods: `start()`, `seek(t)`, `play(go = true)`, `pause()`, `toggle()`, `fullscreen()`.
+player methods: `start()`, `seek(t)`, `play(go = true)`, `pause()`, `toggle()`, `fullscreen()`, `encode(opt)`
+( see Online Export ).
 `player.ready` is a promise resolved by `start()`.
 
 Until `start()` is called, the stage is hidden behind the loading screen, the control bar is disabled, and
@@ -81,6 +82,41 @@ helpers:
    transparent; pass `hide: false` for nested elements, since a visible child overrides a hidden parent.
  - `txt(el, html)`: set innerHTML only when changed.
  - `svg(tag, attrs, parent)`: create an svg element.
+
+
+## Online Export
+
+`player.encode(opt)` renders the animation to mp4 inside the browser, with no server: it seeks frame by frame, captures
+the stage with [snapdom](https://github.com/zumerlab/snapdom) and encodes with WebCodecs through
+[mediabunny](https://github.com/Vanilagy/mediabunny). Returns a promise of a `Blob` ( `video/mp4` ).
+
+    p.encode({fps: 30, progress: (v) -> console.log v})
+      .then (blob) -> a.href = URL.createObjectURL(blob)
+
+options:
+
+ - `width`, `height`: output size, default the player's design size; rounded to even numbers.
+ - `fps`: default `30`. `from`, `to`: render only a range, in seconds.
+ - `sub`, `shutter`: motion blur, as in the cli.
+ - `bitrate`: in bps. default mediabunny's `QUALITY_HIGH` for the size.
+ - `background`: default the stage's background color; black when transparent, since mp4 has no alpha.
+ - `progress(v)`: `0..1`. `signal`: an `AbortSignal`; aborting rejects with an `AbortError`.
+
+While encoding, the player is paused and locked, the stage is shown unscaled ( snapdom pads a scaled element by a few
+pixels, which shrinks the frame slightly ) behind a cover showing the progress, and afterwards it returns to the time
+it was at.
+
+snapdom and mediabunny are loaded by dynamic `import()` only when encoding, from jsdelivr by default. Point
+`lotion.libs.snapdom` / `lotion.libs.mediabunny` to self-hosted ES module builds
+( `@zumer/snapdom/dist/snapdom.mjs`, `mediabunny/dist/bundles/mediabunny.min.mjs` ), or pass loaded modules as
+`opt.snapdom` / `opt.mediabunny`. `lotion.encode({el, seek, duration, ...})` does the same for any element, such as a
+block; `el` should not be scaled by a transform.
+
+Frames match the cli's closely ( about 49 dB PSNR on the demo, the remaining difference being compression ), since
+both are rasterized by the browser; what snapdom cannot capture ( cross-origin images or fonts without CORS, iframes )
+differs. Requires `VideoEncoder` ( Chrome / Edge, Safari 16.4+, Firefox 130+ ). Speed is bound by snapdom cloning the
+DOM, not by resolution: the 17 seconds demo at 1080p30 takes about 46 seconds in Chrome on a development mac. For long or
+final renders, the cli remains faster ( `--workers` ) and exact.
 
 
 ## Render protocol

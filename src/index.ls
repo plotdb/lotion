@@ -194,7 +194,9 @@ player.prototype = Object.create(Object.prototype) <<<
       else if e.key == \ArrowRight => @seek(starts.find((s) ~> s > @t + 0.05) ? @duration)
       else if e.key == \ArrowLeft => @seek(starts.filter((s) ~> s < @t - 0.5).pop! ? 0)
 
+  # encode() 期間舞台維持原尺寸 ( 見 encode ), 不縮放
   fit: ->
+    if @encoding => return
     w = @viewport.clientWidth; h = @viewport.clientHeight
     if !w or !h => return
     s = Math.min w / @width, h / @height
@@ -202,9 +204,9 @@ player.prototype = Object.create(Object.prototype) <<<
 
   fmt: (t) -> "#{Math.floor(t / 60)}:#{"0#{Math.floor(t % 60)}".slice(-2)}"
 
-  # start() 之前內容尚未就緒: 不呼叫 opt.seek, 也不播放
+  # start() 之前內容尚未就緒, encode() 期間畫面由匯出控制: 都不呼叫 opt.seek, 也不播放
   seek: (t) ->
-    if !@started => return
+    if !@started or @encoding => return
     @t = t = clamp t, 0, @duration
     @opt.seek t
     p = "#{100 * t / @duration}%"
@@ -222,7 +224,7 @@ player.prototype = Object.create(Object.prototype) <<<
     requestAnimationFrame (n) ~> @tick n
 
   play: (go = true) ->
-    if !@started => return
+    if !@started or @encoding => return
     if go and @t >= @duration => @t = 0
     @playing = go
     @last = null
@@ -239,9 +241,117 @@ player.prototype = Object.create(Object.prototype) <<<
     else (@root.requestFullscreen or @root.webkitRequestFullscreen).call @root
     @root.focus!
 
+  # 線上匯出 mp4, 回傳 Promise<Blob>. opt 同 lotion.encode, el / seek / duration / 尺寸由播放器提供.
+  # 匯出期間暫停並鎖住播放器 ( 拖曳或播放會改動畫面 ), 結束後回到原本的時間.
+  # 舞台縮放時 snapdom 會在截圖四周留出幾 px 的邊, 使內容略為縮小偏移; 所以匯出期間取消縮放,
+  # 以顯示進度的遮罩蓋住超出容器的舞台.
+  encode: (opt = {}) ->
+    if !@started => return Promise.reject new Error('[lotion] encode() before start()')
+    if @encoding => return Promise.reject new Error('[lotion] already encoding')
+    @pause!
+    t0 = @t
+    @encoding = true
+    @root.classList.add \lotion-encoding
+    tf = @stage.style.transform
+    @stage.style.transform = \none
+    cover = mk \lotion-encoding-screen, '<div class="lotion-spinner"></div><div class="lotion-progress"></div>', @viewport
+    bar = cover.querySelector \.lotion-progress
+    done = ~>
+      cover.remove!
+      @stage.style.transform = tf
+      @encoding = false
+      @root.classList.remove \lotion-encoding
+      @fit!
+      @seek t0
+    progress = (v) ->
+      bar.textContent = "#{Math.round(v * 100)}%"
+      if opt.progress => opt.progress v
+    encode({el: @stage, seek: @opt.seek, duration: @duration, width: @width, height: @height} <<< opt <<< {progress})
+      .then (b) -> done!; b
+      .catch (e) -> done!; throw e
+
+# ---------- 線上匯出 ----------
+# 在瀏覽器中逐格 seek(t), 以 snapdom 截圖, 以 WebCodecs ( 透過 mediabunny ) 編碼成 mp4.
+# 兩個函式庫只在匯出時才以 dynamic import 載入; 網址可由 lotion.libs 覆寫 ( 例如改用自架的檔案 ),
+# 或在 opt.snapdom / opt.mediabunny 直接傳入已載入的模組.
+libs =
+  snapdom: 'https://cdn.jsdelivr.net/npm/@zumer/snapdom@3.3.0/dist/snapdom.mjs'
+  mediabunny: 'https://cdn.jsdelivr.net/npm/mediabunny@1.61.3/dist/bundles/mediabunny.min.mjs'
+lib-cache = {}
+load-lib = (name) -> lib-cache[name] ?= ``import(libs[name])``
+
+# 匯出 mp4, 回傳 Promise<Blob>. 一般透過 player.encode(opt) 使用.
+#  opt:
+#   - el: 要截圖的元素. seek: (t) -> 更新畫面. duration: 總長 ( 秒 )
+#   - width / height: 輸出尺寸, 預設 1920 x 1080; 會調成偶數 ( H.264 需要 )
+#   - fps: 預設 30. from / to: 只輸出一段 ( 秒 )
+#   - sub / shutter: 同 cli. sub > 1 時每格取 sub 個子樣本平均成 motion blur
+#   - bitrate: 位元率 ( bps ), 預設為 mediabunny 依尺寸決定的 QUALITY_HIGH
+#   - background: 底色, 預設取 el 的背景色; mp4 沒有透明, 未指定且透明時為黑
+#   - progress: (p) -> 0..1 進度. signal: AbortSignal, 中止時 reject 一個 AbortError
+encode = (opt = {}) ->
+  if typeof(VideoEncoder) == \undefined
+    return Promise.reject new Error('[lotion] WebCodecs ( VideoEncoder ) is not supported in this browser')
+  even = (v) -> 2 * Math.round(v / 2)
+  w = even(opt.width or 1920); h = even(opt.height or 1080)
+  fps = opt.fps or 30
+  sub = Math.max 1, Math.round(opt.sub or 1)
+  d = (opt.shutter ? 0.5) / fps / sub
+  from = opt.from or 0
+  to = opt.to ? opt.duration
+  n = Math.max 1, Math.round((to - from) * fps)
+  bg = opt.background or getComputedStyle(opt.el).backgroundColor
+  if !bg or bg == 'rgba(0, 0, 0, 0)' or bg == \transparent => bg = '#000'
+  abort = -> if opt.signal and opt.signal.aborted => throw new DOMException('export aborted', \AbortError)
+  output = null
+  Promise.all [
+    if opt.snapdom => Promise.resolve that else load-lib(\snapdom)
+    if opt.mediabunny => Promise.resolve that else load-lib(\mediabunny)
+  ]
+    .then ([sd, mb]) ->
+      snap = sd.snapdom or sd
+      canvas = document.createElement \canvas
+      canvas <<< {width: w, height: h}
+      ctx = canvas.getContext \2d
+      mb.getFirstEncodableVideoCodec(<[avc vp9 av1]>, {width: w, height: h})
+        .then (codec) ->
+          if !codec => throw new Error("[lotion] no encodable video codec for #{w}x#h")
+          output := new mb.Output do
+            format: new mb.Mp4OutputFormat fastStart: \in-memory
+            target: new mb.BufferTarget!
+          src = new mb.CanvasSource canvas, {codec, bitrate: opt.bitrate or mb.QUALITY_HIGH}
+          output.addVideoTrack src, frameRate: fps
+          output.start!then -> src
+        .then (src) ->
+          # 依序處理第 i 格的第 j 個子樣本; 子樣本以逐步平均疊在 canvas 上.
+          # add() 呼叫時即複製 canvas, 所以不等它編碼完就截下一格, 下一次 add() 前再等 ( 背壓 )
+          pending = Promise.resolve!
+          step = (i, j) ->
+            abort!
+            if i >= n => return pending
+            if j >= sub
+              return pending.then ->
+                abort!
+                pending := src.add i / fps, 1 / fps
+                if opt.progress => opt.progress (i + 1) / n
+                step i + 1, 0
+            t = clamp from + i / fps + (if sub > 1 => (j - (sub - 1) / 2) * d else 0), 0, opt.duration
+            opt.seek t
+            snap.toCanvas opt.el, {width: w, height: h, dpr: 1, backgroundColor: bg}
+              .then (c) ->
+                ctx.globalAlpha = 1 / (j + 1)
+                ctx.drawImage c, 0, 0, w, h
+                step i, j + 1
+          step 0, 0
+    .then -> output.finalize!
+    .then -> new Blob [output.target.buffer], type: \video/mp4
+    .catch (e) ->
+      if output and output.state in <[started pending]> => output.cancel!
+      throw e
+
 lotion = {
   clamp, lerp, ss, spring, presets, track, vis, bump, typing
-  hex, mixc, rgb, mk, put, txt, svg, player
+  hex, mixc, rgb, mk, put, txt, svg, player, encode, libs
 }
 
 if module? => module.exports = lotion

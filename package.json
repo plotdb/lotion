@@ -49,14 +49,19 @@
   "devDependencies": {
     "@plotdb/guides": "github:plotdb/guides",
     "@zbryikt/template": "^2.5.0",
+    "@zumer/snapdom": "^3.3.0",
     "fedep": "^1.9.0",
     "livescript": "^1.6.0",
+    "mediabunny": "^1.61.3",
     "playwright": "^1.63.0",
     "stylus": "^0.64.0",
     "uglify-js": "^3.19.3"
   },
   "frontendDependencies": {
     "root": "web/static/assets/lib",
-    "modules": []
+    "modules": [
+      "@zumer/snapdom",
+      "mediabunny"
+    ]
   }
 }
