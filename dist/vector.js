@@ -1,6 +1,6 @@
 (function(){
   (function(){
-    var lotion, ref$, props, skip, i$, len$, s, c, textProps, unsupported, b64Bytes, b64, svgUri, fixShadow, fixUri, box, svgProps, svgSrc, bakeTransform, convert, fontCache, unquote, parseRange, parseSrc, faceOf, facesInText, facesInSheet, allFaces, getFaces, loadFont, hb, getHb, WGHT, subset, clamp, weightRank, fontsFor, render, makeCtx, prepare, vector, IDENT, mul, parseMatrix, motionMatrix, svgMatrix, viewboxMatrix, blurOf, simplify, fmt, pct, SVGGROUP, SVGSTATIC, NUMATTRS, NUMPROPS, LEAFSTYLE, POSATTRS, NUMERIC, xml, styleDiff, leaf, groupAttrs, splitTop, rgba, maskOf, sample, drawOn, PAD, draw, attrTol, compose, animate;
+    var lotion, ref$, props, skip, i$, len$, s, c, textProps, unsupported, b64Bytes, b64, svgUri, fixShadow, fixUri, box, svgProps, svgSrc, bakeTransform, convert, fontCache, unquote, parseRange, parseSrc, faceOf, facesInText, facesInSheet, allFaces, getFaces, loadFont, hb, getHb, WGHT, subset, clamp, weightRank, fontsFor, render, makeCtx, prepare, vector, IDENT, mul, parseMatrix, motionMatrix, svgMatrix, viewboxMatrix, blurOf, simplify, fmt, pct, SVGGROUP, SVGSTATIC, NUMATTRS, NUMPROPS, LEAFSTYLE, POSATTRS, NUMERIC, xml, styleDiff, leaf, groupAttrs, splitTop, rgba, maskOf, clipOf, sample, drawOn, PAD, draw, attrTol, compose, animate;
     lotion = window.lotion;
     ref$ = lotion.libs;
     ref$.satori = 'https://cdn.jsdelivr.net/npm/satori@0.36.0/+esm';
@@ -1228,6 +1228,39 @@
         return it;
       }
     };
+    clipOf = function(cs, w, h){
+      var m, v, ref$, t, r, b, l, len;
+      if (!(m = /^inset\(([^)]*)\)$/.exec(cs.clipPath)) || /round/.test(m[1])) {
+        return null;
+      }
+      v = m[1].trim().split(/\s+/);
+      if (!((ref$ = v.length) === 1 || ref$ === 2 || ref$ === 3 || ref$ === 4) || v.some(function(x){
+        return !/^-?[\d.]+(px|%)$/.test(x) && x !== '0';
+      })) {
+        return null;
+      }
+      ref$ = [
+        v[0], (ref$ = v[1]) != null
+          ? ref$
+          : v[0], (ref$ = v[2]) != null
+          ? ref$
+          : v[0], (ref$ = v[3]) != null
+          ? ref$
+          : (ref$ = v[1]) != null
+            ? ref$
+            : v[0]
+      ], t = ref$[0], r = ref$[1], b = ref$[2], l = ref$[3];
+      len = function(x, ref){
+        if (/%$/.test(x)) {
+          return ref * parseFloat(x) / 100;
+        } else {
+          return parseFloat(x) || 0;
+        }
+      };
+      ref$ = [len(t, h), len(b, h)], t = ref$[0], b = ref$[1];
+      ref$ = [len(r, w), len(l, w)], r = ref$[0], l = ref$[1];
+      return [l, t, Math.max(0, w - l - r), Math.max(0, h - t - b)];
+    };
     sample = function(opt, ctx){
       var el, seek, n, fps, from, recs, byEl, recOf, variant, walkSvg, walk, i$, i;
       el = opt.el, seek = opt.seek, n = opt.n, fps = opt.fps, from = opt.from;
@@ -1352,7 +1385,7 @@
         };
       };
       walk = function(e, parent, i, depth){
-        var cs, tag, rec, ref$, x, y, w, h, m, gmask, masked, i$, len$, c, blur, elems, hasText, atomic, v, node, st, k, laters, results$ = [];
+        var cs, tag, rec, ref$, x, y, w, h, m, gmask, gclip, masked, i$, len$, c, blur, elems, hasText, atomic, v, node, st, k, laters, results$ = [];
         cs = getComputedStyle(e);
         if (cs.display === 'none') {
           return;
@@ -1375,7 +1408,11 @@
             ctx.warn("mask image changes over time: only the first is kept");
           }
         }
-        masked = (cs.maskImage !== 'none' && !gmask) || cs.clipPath !== 'none';
+        gclip = cs.clipPath !== 'none' ? clipOf(cs, w, h) : null;
+        if (gclip) {
+          rec.clipped = true;
+        }
+        masked = (cs.maskImage !== 'none' && !gmask) || (cs.clipPath !== 'none' && !gclip);
         if (tag === 'svg' && !masked) {
           if (!rec.kind) {
             rec.kind = 'svg';
@@ -1390,7 +1427,8 @@
             o: +cs.opacity,
             b: 0,
             v: -1,
-            k: gmask && gmask.rect
+            k: gmask && gmask.rect,
+            q: gclip
           };
           if (+cs.opacity > 0) {
             for (i$ = 0, len$ = (ref$ = Array.from(e.children)).length; i$ < len$; ++i$) {
@@ -1432,6 +1470,9 @@
                 delete st[k];
               }
             }
+            if (gclip) {
+              delete st.clipPath;
+            }
             delete node.blend;
             laters = ctx.laters;
             v = variant(rec, JSON.stringify(node), function(){
@@ -1449,7 +1490,8 @@
           o: +cs.opacity,
           b: blur || 0,
           v: v,
-          k: gmask && gmask.rect
+          k: gmask && gmask.rect,
+          q: gclip
         };
         if (!atomic && +cs.opacity > 0) {
           for (i$ = 0, len$ = elems.length; i$ < len$; ++i$) {
@@ -1566,7 +1608,7 @@
       }
     };
     compose = function(recs, opt, fonts){
-      var n, fps, width, height, dur, css, fontNames, tail, series, rule, track, animateEl, attrsOf, maskMarkup, withMask, leafMarkup, out, body, faces, style;
+      var n, fps, width, height, dur, css, fontNames, tail, series, rule, track, animateEl, attrsOf, maskMarkup, withMask, NOCLIP, withClip, leafMarkup, out, body, faces, style;
       n = opt.n, fps = opt.fps, width = opt.width, height = opt.height;
       dur = n / fps;
       css = [];
@@ -1725,6 +1767,39 @@
         }
         return maskMarkup(rec) + "<g mask=\"url(#m" + rec.id + ")\">" + inner + "</g>";
       };
+      NOCLIP = [-100000, -100000, 200000, 200000];
+      withClip = function(rec, inner){
+        var F, r, i$, ref$, len$, j, k, ref1$, _, v, anim;
+        if (!rec.clipped) {
+          return inner;
+        }
+        F = rec.frames;
+        r = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+        for (i$ = 0, len$ = (ref$ = ['x', 'y', 'width', 'height']).length; i$ < len$; ++i$) {
+          j = i$;
+          k = ref$[i$];
+          ref1$ = track(k, (fn$()).map(fn1$), 0.25), _ = ref1$[0], v = ref1$[1], anim = ref1$[2];
+          r.setAttribute(k, v);
+          if (anim) {
+            r.appendChild(animateEl(k, anim));
+          }
+        }
+        return "<clipPath id=\"q" + rec.id + "\">" + xml(r) + "</clipPath><g clip-path=\"url(#q" + rec.id + ")\">" + inner + "</g>";
+        function fn$(){
+          var i$, to$, results$ = [];
+          for (i$ = 0, to$ = n; i$ < to$; ++i$) {
+            results$.push(i$);
+          }
+          return results$;
+        }
+        function fn1$(i){
+          if (F[i]) {
+            return [(F[i].q || NOCLIP)[j]];
+          } else {
+            return null;
+          }
+        }
+      };
       leafMarkup = function(rec, va){
         var c, i$, ref$, len$, ref1$, k, v, anim, f;
         c = va.c;
@@ -1877,7 +1952,7 @@
           if (rec.clip) {
             inner = "<clipPath id=\"c" + rec.id + "\"><rect width=\"" + rec.clip[0] + "\" height=\"" + rec.clip[1] + "\"/></clipPath><g clip-path=\"url(#c" + rec.id + ")\">" + inner + "</g>";
           }
-          return "<g class=\"" + cls + "\">" + withMask(rec, inner) + "</g>";
+          return "<g class=\"" + cls + "\">" + withClip(rec, withMask(rec, inner)) + "</g>";
         }
         if (rec.kind === 'g') {
           return "<g class=\"" + cls + "\" " + rec.attrs + ">" + kids + "</g>";
@@ -1885,7 +1960,7 @@
         if (rec.clip && kids) {
           kids = "<clipPath id=\"c" + rec.id + "\"><rect width=\"" + rec.clip[0] + "\" height=\"" + rec.clip[1] + "\"/></clipPath><g clip-path=\"url(#c" + rec.id + ")\">" + kids + "</g>";
         }
-        return "<g class=\"" + cls + "\">" + withMask(rec, vs.join('') + kids) + "</g>";
+        return "<g class=\"" + cls + "\">" + withClip(rec, withMask(rec, vs.join('') + kids)) + "</g>";
       };
       body = out(recs[0]);
       faces = fonts.filter(function(it){

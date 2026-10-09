@@ -606,6 +606,18 @@ do ->
     grad = stops.map((s, i) -> "<stop offset=\"#{fmt offs[i]}\" stop-color=\"rgb(#{s.col.0},#{s.col.1},#{s.col.2})\" stop-opacity=\"#{s.col.3}\"/>").join('')
     {grad: "<linearGradient x1=\"#x1\" y1=\"#y1\" x2=\"#x2\" y2=\"#y2\">#grad</linearGradient>", rect: [x, y, tw, th], key: cs.maskImage}
 
+  # clip-path: inset(): 在元素的版面座標中的矩形 [x, y, w, h], 寫成 svg clipPath ( 矩形以 smil 移動 ).
+  # 其他形狀 ( 與帶圓角的 inset ) 回傳 null, 交給 satori 畫進外觀
+  clip-of = (cs, w, h) ->
+    if !(m = /^inset\(([^)]*)\)$/.exec cs.clipPath) or /round/.test(m.1) => return null
+    v = m.1.trim!split(/\s+/)
+    if !(v.length in [1 2 3 4]) or v.some((x) -> !/^-?[\d.]+(px|%)$/.test(x) and x != '0') => return null
+    [t, r, b, l] = [v.0, v.1 ? v.0, v.2 ? v.0, v.3 ? (v.1 ? v.0)]
+    len = (x, ref) -> if /%$/.test(x) => ref * parseFloat(x) / 100 else parseFloat(x) or 0
+    [t, b] = [len(t, h), len(b, h)]
+    [r, l] = [len(r, w), len(l, w)]
+    [l, t, Math.max(0, w - l - r), Math.max(0, h - t - b)]
+
   # 逐格取樣. 回傳 recs; rec: {id, el, parent, kids, kind, variants, frames, ...}
   #  kind: html ( 預設, 外觀以 satori 畫 ) / svg ( inline svg 本身 ) / g ( svg 容器 ) / leaf ( svg 葉節點 ) / static
   #  frames[i]: {m, o, b, v, a} ( 矩陣、opacity、blur、外觀變體 ( -1 為不畫 )、數值屬性 ), 不存在的格為 null
@@ -673,13 +685,15 @@ do ->
       if gmask
         if !rec.mask => rec.mask = gmask
         else if rec.mask.key != gmask.key => ctx.warn "mask image changes over time: only the first is kept"
+      gclip = if cs.clipPath != \none => clip-of(cs, w, h) else null
+      if gclip => rec.clipped = true
       # 不支援的 mask / clip-path: 連同子元素整個畫成外觀
-      masked = (cs.maskImage != \none and !gmask) or cs.clipPath != \none
+      masked = (cs.maskImage != \none and !gmask) or (cs.clipPath != \none and !gclip)
       if tag == \svg and !masked
         # 不輸出巢狀 <svg> ( 其中的 smil 不隨外層 svg 暫停 / 跳轉 ): viewBox 換成矩陣, overflow 換成 clipPath
         if !rec.kind
           rec <<< {kind: \svg, vb: viewbox-matrix(e, w, h), clip: (if cs.overflow == \visible => null else [w, h]), style: style-diff(e, cs)}
-        rec.frames[i] = {m, o: +cs.opacity, b: 0, v: -1, k: gmask and gmask.rect}
+        rec.frames[i] = {m, o: +cs.opacity, b: 0, v: -1, k: gmask and gmask.rect, q: gclip}
         if +cs.opacity > 0 => for c in Array.from(e.children) => walk-svg c, rec, i
         return
       blur = blur-of cs.filter
@@ -697,11 +711,12 @@ do ->
           for k in <[position left top transform transformOrigin opacity]> => delete st[k]
           if blur? => delete st.filter
           if gmask => for k in <[maskImage maskPosition maskSize maskRepeat]> => delete st[k]
+          if gclip => delete st.clipPath
           delete node.blend
           # 外觀相同就共用同一個變體 ( svg 圖片在字型就緒前以內容暫代 src, 仍可區分 )
           laters = ctx.laters
           v = variant rec, JSON.stringify(node), -> {node, w, h, laters}
-      rec.frames[i] = {m, o: +cs.opacity, b: blur or 0, v, k: gmask and gmask.rect}
+      rec.frames[i] = {m, o: +cs.opacity, b: blur or 0, v, k: gmask and gmask.rect, q: gclip}
       if !atomic and +cs.opacity > 0 => for c in elems => walk c, rec, i, depth + 1
     for i from 0 til n
       if opt.signal and opt.signal.aborted => throw new DOMException('aborted', \AbortError)
@@ -812,6 +827,17 @@ do ->
     with-mask = (rec, inner) ->
       if !rec.mask => return inner
       "#{mask-markup rec}<g mask=\"url(\#m#{rec.id})\">#inner</g>"
+    # clip-path: inset(): 矩形寫成 smil; 沒有 clip-path 的格不裁切 ( 以很大的矩形表示 )
+    NOCLIP = [-100000, -100000, 200000, 200000]
+    with-clip = (rec, inner) ->
+      if !rec.clipped => return inner
+      F = rec.frames
+      r = document.createElementNS 'http://www.w3.org/2000/svg', \rect
+      for k, j in <[x y width height]>
+        [_, v, anim] = track k, [0 til n].map((i) -> if F[i] => [(F[i].q or NOCLIP)[j]] else null), 0.25
+        r.setAttribute k, v
+        if anim => r.appendChild animate-el(k, anim)
+      "<clipPath id=\"q#{rec.id}\">#{xml r}</clipPath><g clip-path=\"url(\#q#{rec.id})\">#inner</g>"
     leaf-markup = (rec, va) ->
       c = va.c
       for [k, v, anim] in rec.tracks
@@ -861,11 +887,11 @@ do ->
         inner = "<g transform=\"matrix(#{rec.vb.map(fmt).join(',')})\" style=\"#{rec.style.replace(/"/g, "'")}\">#kids</g>"
         if rec.clip
           inner = "<clipPath id=\"c#{rec.id}\"><rect width=\"#{rec.clip.0}\" height=\"#{rec.clip.1}\"/></clipPath><g clip-path=\"url(\#c#{rec.id})\">#inner</g>"
-        return "<g class=\"#cls\">#{with-mask rec, inner}</g>"
+        return "<g class=\"#cls\">#{with-clip rec, with-mask(rec, inner)}</g>"
       if rec.kind == \g => return "<g class=\"#cls\" #{rec.attrs}>#kids</g>"
       if rec.clip and kids
         kids = "<clipPath id=\"c#{rec.id}\"><rect width=\"#{rec.clip.0}\" height=\"#{rec.clip.1}\"/></clipPath><g clip-path=\"url(\#c#{rec.id})\">#kids</g>"
-      "<g class=\"#cls\">#{with-mask rec, vs.join('') + kids}</g>"
+      "<g class=\"#cls\">#{with-clip rec, with-mask(rec, vs.join('') + kids)}</g>"
     body = out recs.0
     # svg 中的文字 ( 未經 satori ) 需要的字型, 以 data uri 嵌入一次
     faces = fonts.filter(-> font-names.has it.name).map (f) ->
