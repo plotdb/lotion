@@ -35,3 +35,6 @@ lotitor 的焚風純程式版 ( `trial/sumi-ink/code.html`, 44 秒, 10 fps, 440 
  - canvas ( 水墨版的墨暈 ): 每格一張點陣圖, 是水墨版 8 MB 的主因之一. 可降低 canvas 的取樣率 ( 只在內容變化時取樣
    已是如此, 但墨暈每格都變 ), 或允許指定某些元素以較低 fps 取樣.
  - 點陣素材: 水墨版的山、雲等 png 以 data uri 內嵌. 可選擇轉成 webp / 降解析度, 或改為外部連結 ( 不再是單一檔案 ).
+ - 只差 clip-path 的變體 ( 2026-10-09 轉 lottie 時發現 ): 焚風的刷色帶以 `clip-path: inset()` 擦入, 產生 10 個變體,
+   每個都帶一份相同的漸層 path, 只有 satori 的 clipPath 矩形寬度不同. 可比照漸層 mask 擦入的做法, 改成一個變體加上
+   以 smil 移動的 clip 矩形. svg2lottie 轉出的 lottie 也會因此變小 ( lottie 沒有 defs, 每個變體都是完整的形狀 ).
