@@ -1,3 +1,35 @@
+## v0.4.2
+
+ - animate, size: `clip-path: inset()` ( reveals ) becomes one svg clipPath whose rect moves by smil, instead of one
+   appearance per inset ( lotitor's sumi-ink trial: html variants 68 to 35 )
+
+
+## v0.4.1
+
+ - bug fix:
+   - vector / animate: box-shadow and text-shadow are reordered to "offsets blur spread color", since computed style
+     puts the color first and satori then drew a broken path, so shadows were missing
+
+
+## v0.4.0
+
+ - features:
+   - `lotion.animate(opt)` / `player.animate(opt)` ( experimental, in `vector.js` ): convert a whole animation into one
+     animated svg. each element becomes a `<g>` nested as in the dom; its motion ( position and transform as a matrix,
+     opacity, blur ) is sampled per frame and written as css keyframes, simplified to the points linear interpolation
+     needs; each distinct appearance is drawn once by satori and switched by visibility. inline svg is walked
+     natively: groups animate, leaves keep their markup with numeric attributes as smil `<animate>`, definitions are
+     written once, and text uses fonts embedded once. `mix-blend-mode` now works at any depth.
+   - demo: the `/vector/` page converts the whole animation and plays the animated svg
+   - animate, size: numeric tracks are written once per element instead of once per appearance ( positions of svg
+     leaves join the group matrix, inheritable values such as `stroke-dashoffset` animate on the group );
+     css gradient masks moved by `mask-position` / `mask-size` ( wipes ) become one svg mask with a moving rect, so
+     the content is drawn once; paths drawn progressively ( each `d` a prefix of a longer one ) become the full path
+     revealed by a dash animation. the code-only sumi-ink trial drops from 3.2 MB to 1.5 MB.
+ - tweaks:
+   - vector: inline svg keeps a content-based placeholder `src` until fonts are ready
+
+
 ## v0.3.0
 
  - features:

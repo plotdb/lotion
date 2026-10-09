@@ -147,6 +147,33 @@ dependency after lotion ( `{name: 'lotion', path: 'vector.min.js'}` ); rescope g
    web font ( system fonts are not available ), mask or clip-path under a transform other than a translation
    ( satori does not move masks with transforms ).
 
+### Animated svg
+
+`lotion.animate({el, seek, duration, fps})` ( or `player.animate({fps})` ) converts the whole animation into one svg
+that plays by itself, resolving to `{svg, warnings, stats}`:
+
+ - every element becomes a `<g>`, nested as in the dom. Its motion, the position and transform combined into a
+   matrix, opacity and a `blur()` filter, is sampled at `fps` and written as css keyframes, keeping only the samples
+   linear interpolation needs.
+ - everything else is its appearance. Each distinct appearance is drawn once ( by satori ) and shown by visibility
+   keyframes, so an element that only moves costs one drawing, while one whose content changes ( typing, a growing
+   width ) costs one per state. Elements with a css mask, clip-path or other filters, `<img>` and `<canvas>`, are
+   drawn with their children as one appearance.
+ - inline svg is kept as svg: groups animate like elements, leaves keep their markup with numeric attributes
+   ( coordinates, `stroke-dashoffset`, opacities ... ) written as smil `<animate>`, definitions are written once,
+   and text uses fonts embedded once. nested `<svg>` becomes a group, since smil inside a nested svg does not follow
+   the outer svg when paused or seeked.
+ - tracks are written once per element: positions of svg leaves join the group matrix, and inheritable values
+   ( `stroke-dashoffset`, `stroke-width`, fill / stroke opacity ) animate on the group.
+ - a css mask of one `linear-gradient` ( horizontal or vertical, `no-repeat` ) becomes an svg mask whose rect follows
+   `mask-position` / `mask-size`, so a wipe draws its content once. Other masks and clip-paths are drawn per state.
+ - a path whose `d` grows ( each one a prefix of a longer one, stroked without fill, dashes or markers ) becomes the
+   longest path revealed by a dash animation.
+ - options: `fps` ( default 30 ), `from`, `to`, `loop` ( default true ), `progress`, `signal`.
+
+The demo converts in under a second into 230 KB ( 35 KB with brotli ); the code-only sumi-ink trial ( 44 s at 10 fps )
+in about 2 seconds into 1.5 MB ( 230 KB with brotli ). Serve it compressed, or save it as `.svgz`. Frames of the animated svg match screenshots as closely as single frames do.
+
 On the demo and the sumi-ink trial of lotitor, frames rasterized from the svg match screenshots at 29 - 39 dB PSNR;
 the remaining difference is mostly text antialiasing and baselines in fixed line-heights. A frame takes 50 - 300 ms.
 
