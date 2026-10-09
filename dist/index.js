@@ -1,5 +1,5 @@
 (function(){
-  var PI, sin, cos, exp, sqrt, round, clamp, lerp, ss, spring, presets, track, vis, bump, typing, hex, mixc, rgb, mk, put, txt, NS, svg, player, ref$, libs, libCache, lib, encode, lotion;
+  var PI, sin, cos, exp, sqrt, round, clamp, lerp, ss, spring, presets, track, vis, bump, typing, hex, mixc, rgb, mk, put, txt, NS, svg, player, ref$, libs, libCache, lib, encode, vttTime, vttParseTime, vtt, lotion;
   PI = Math.PI, sin = Math.sin, cos = Math.cos, exp = Math.exp, sqrt = Math.sqrt, round = Math.round;
   clamp = function(v, a, b){
     a == null && (a = 0);
@@ -179,7 +179,7 @@
     return e;
   };
   player = function(opt){
-    var this$ = this;
+    var c, tracks, k, v, ref$, this$ = this;
     opt == null && (opt = {});
     this.opt = opt;
     this.root = typeof opt.root === 'string'
@@ -190,6 +190,9 @@
     this.duration = opt.duration || 0;
     this.chapters = opt.chapters || [];
     this.t = 0;
+    this.chapter = null;
+    this.caption = null;
+    this.handlers = {};
     this.playing = false;
     this.last = null;
     this.started = false;
@@ -197,8 +200,29 @@
       return this$.readyRes = res;
     });
     this.renderMode = /[?&]render\b/.test(location.search);
+    c = opt.captions;
+    tracks = !c
+      ? {}
+      : Array.isArray(c) ? {
+        '': c
+      } : c;
+    this.captionTracks = {};
+    for (k in tracks) {
+      v = tracks[k];
+      this.captionTracks[k] = v.slice().sort(fn$);
+    }
+    this.captionLangs = Object.keys(this.captionTracks);
+    this.captionLang = in$(opt.captionLang, this.captionLangs)
+      ? opt.captionLang
+      : (ref$ = this.captionLangs[0]) != null ? ref$ : null;
+    this.captionsOn = this.renderMode
+      ? !!(opt.burnCaptions || /[?&]captions\b/.test(location.search))
+      : !opt.captionsBurned;
     this.init();
     return this;
+    function fn$(a, b){
+      return a[0] - b[0];
+    }
   };
   player.prototype = (ref$ = Object.create(Object.prototype), ref$.constructor = player, ref$.init = function(){
     var r, ref$, html, q, this$ = this;
@@ -218,7 +242,7 @@
       html = typeof this.opt.loading === 'string' ? this.opt.loading : '<div class="lotion-spinner"></div>';
       this.loading = mk('lotion-loading-screen', html, this.viewport);
     }
-    this.bar = mk('lotion-bar', '<div class="lotion-btn lotion-play"></div>\n<div class="lotion-track"><div class="lotion-rail"></div><div class="lotion-fill"></div>\n<div class="lotion-chapters"></div><div class="lotion-knob"></div></div>\n<div class="lotion-time"></div>\n<div class="lotion-btn lotion-fs" title="全螢幕"><svg width="16" height="16" viewBox="0 0 16 16" fill="none"\nstroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M2 6V2h4M10 2h4v4M14 10v4h-4M6 14H2v-4"/></svg></div>', r);
+    this.bar = mk('lotion-bar', '<div class="lotion-btn lotion-play"></div>\n<div class="lotion-track"><div class="lotion-rail"></div><div class="lotion-fill"></div>\n<div class="lotion-chapters"></div><div class="lotion-knob"></div></div>\n<div class="lotion-time"></div>\n<div class="lotion-btn lotion-cc" title="字幕 ( c )">CC</div>\n<div class="lotion-btn lotion-fs" title="全螢幕"><svg width="16" height="16" viewBox="0 0 16 16" fill="none"\nstroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M2 6V2h4M10 2h4v4M14 10v4h-4M6 14H2v-4"/></svg></div>', r);
     q = function(n){
       return this$.bar.querySelector(".lotion-" + n);
     };
@@ -229,15 +253,21 @@
       time: q('time'),
       track: q('track'),
       chapters: q('chapters'),
-      fs: q('fs')
+      fs: q('fs'),
+      cc: q('cc')
     };
     this.chapters.map(function(arg$){
-      var t, name, e;
-      t = arg$[0], name = arg$[1];
+      var t, name, meta, e;
+      t = arg$[0], name = arg$[1], meta = arg$[2];
       e = mk('lotion-ch', '', this$.el.chapters);
-      e.title = name;
+      e.title = name + (meta && meta.description ? "\n" + meta.description : '');
       return e.style.left = 100 * t / this$.duration + "%";
     });
+    this.el.captions = mk('lotion-captions', '', this.viewport);
+    if (!this.captionLangs.length) {
+      this.el.cc.remove();
+    }
+    this.root.classList.toggle('lotion-captions-on', this.captionsOn);
     this.bind();
     if (this.renderMode) {
       r.classList.add('lotion-render');
@@ -267,6 +297,9 @@
       if (this.opt.cues) {
         window.cues = this.opt.cues;
       }
+      if (this.captionLangs.length) {
+        window.CAPTIONS = this.captionTracks;
+      }
     }
     this.readyRes(this);
     m = /[?&]t=([\d.]+)/.exec(location.search);
@@ -290,6 +323,10 @@
     this.el.fs.addEventListener('click', function(e){
       e.stopPropagation();
       return this$.fullscreen();
+    });
+    this.el.cc.addEventListener('click', function(e){
+      e.stopPropagation();
+      return this$.showCaptions(!this$.captionsOn);
     });
     this.viewport.addEventListener('click', function(){
       this$.root.focus();
@@ -324,6 +361,8 @@
         return this$.toggle();
       } else if (e.key === 'f') {
         return this$.fullscreen();
+      } else if (e.key === 'c' && this$.captionLangs.length) {
+        return this$.showCaptions(!this$.captionsOn);
       } else if (e.key === 'ArrowRight') {
         return this$.seek((ref$ = starts.find(function(s){
           return s > this$.t + 0.05;
@@ -351,7 +390,7 @@
   }, ref$.fmt = function(t){
     return Math.floor(t / 60) + ":" + ("0" + Math.floor(t % 60)).slice(-2);
   }, ref$.seek = function(t){
-    var p, ch;
+    var p, ci, i$, ref$, len$, i, c, ch;
     if (!this.started || this.encoding) {
       return;
     }
@@ -360,11 +399,109 @@
     p = 100 * t / this.duration + "%";
     this.el.fill.style.width = p;
     this.el.knob.style.left = p;
-    ch = this.chapters.filter(function(c){
-      return c[0] <= t;
-    }).pop();
+    ci = -1;
+    for (i$ = 0, len$ = (ref$ = this.chapters).length; i$ < len$; ++i$) {
+      i = i$;
+      c = ref$[i$];
+      if (c[0] <= t) {
+        ci = i;
+      }
+    }
+    ch = this.chapters[ci];
     this.el.time.textContent = (ch ? ch[1] + " · " : '') + (this.fmt(t) + " / " + this.fmt(this.duration));
-    return this.root.classList.toggle('lotion-playing', this.playing);
+    this.root.classList.toggle('lotion-playing', this.playing);
+    if ((ch
+      ? ci
+      : -1) !== (this.chapter
+      ? this.chapter.index
+      : -1)) {
+      this.chapter = ch ? {
+        index: ci,
+        t: ch[0],
+        name: ch[1],
+        meta: ch[2] || null
+      } : null;
+      this.fire('chapter', this.chapter);
+    }
+    this.updateCaption();
+    return this.fire('time', t);
+  }, ref$.updateCaption = function(){
+    var t, list, act, cap, key, i$, ref$, len$, line;
+    t = this.t;
+    list = (this.captionLang != null && this.captionTracks[this.captionLang]) || [];
+    act = list.filter(function(c){
+      return c[0] <= t && t < c[1];
+    });
+    cap = !act.length
+      ? null
+      : {
+        t0: act[0][0],
+        t1: act[act.length - 1][1],
+        text: act.map(function(c){
+          return c[2];
+        }).join('\n'),
+        meta: act[0][3] || null,
+        lang: this.captionLang
+      };
+    key = function(c){
+      if (c) {
+        return c.lang + "|" + c.t0 + "|" + c.text;
+      } else {
+        return '';
+      }
+    };
+    if (key(cap) === key(this.caption)) {
+      return;
+    }
+    this.caption = cap;
+    this.el.captions.innerHTML = '';
+    if (cap) {
+      for (i$ = 0, len$ = (ref$ = cap.text.split('\n')).length; i$ < len$; ++i$) {
+        line = ref$[i$];
+        mk('lotion-caption', '', this.el.captions).textContent = line;
+      }
+    }
+    return this.fire('caption', cap);
+  }, ref$.showCaptions = function(v){
+    v == null && (v = true);
+    this.captionsOn = !!v;
+    this.root.classList.toggle('lotion-captions-on', this.captionsOn);
+    this.fire('captions', {
+      on: this.captionsOn,
+      lang: this.captionLang
+    });
+    return this;
+  }, ref$.setCaptionLang = function(lang){
+    if (!in$(lang, this.captionLangs)) {
+      return this;
+    }
+    this.captionLang = lang;
+    this.updateCaption();
+    this.fire('captions', {
+      on: this.captionsOn,
+      lang: lang
+    });
+    return this;
+  }, ref$['on'] = function(name, cb){
+    var ref$, ref1$;
+    ((ref1$ = (ref$ = this.handlers)[name]) != null
+      ? ref1$
+      : ref$[name] = []).push(cb);
+    return this;
+  }, ref$['off'] = function(name, cb){
+    if (this.handlers[name]) {
+      this.handlers[name] = this.handlers[name].filter(function(h){
+        return h !== cb;
+      });
+    }
+    return this;
+  }, ref$.fire = function(name, v){
+    var i$, ref$, len$, h, results$ = [];
+    for (i$ = 0, len$ = (ref$ = (this.handlers[name] || []).slice()).length; i$ < len$; ++i$) {
+      h = ref$[i$];
+      results$.push(h(v));
+    }
+    return results$;
   }, ref$.tick = function(now){
     var this$ = this;
     if (!this.playing) {
@@ -583,7 +720,79 @@
       throw e;
     });
   };
+  vttTime = function(t){
+    var ms, h, m, s, pad;
+    ms = Math.round(t * 1000);
+    h = Math.floor(ms / 3600000);
+    m = Math.floor(ms / 60000) % 60;
+    s = Math.floor(ms / 1000) % 60;
+    pad = function(v, n){
+      n == null && (n = 2);
+      return (v + "").padStart(n, '0');
+    };
+    return pad(h) + ":" + pad(m) + ":" + pad(s) + "." + pad(ms % 1000, 3);
+  };
+  vttParseTime = function(s){
+    var p;
+    p = s.trim().split(':');
+    return p.reduce(function(a, v){
+      return a * 60 + parseFloat(v);
+    }, 0);
+  };
+  vtt = {
+    parse: function(text){
+      var ret, blocks, i$, len$, b, lines, i, ref$, a, z, body, meta, m, cue;
+      ret = [];
+      blocks = text.replace(/\r\n?/g, '\n').split(/\n{2,}/);
+      for (i$ = 0, len$ = blocks.length; i$ < len$; ++i$) {
+        b = blocks[i$];
+        lines = b.split('\n').filter(fn$);
+        i = lines.findIndex(fn1$);
+        if (i < 0) {
+          continue;
+        }
+        ref$ = lines[i].split('-->'), a = ref$[0], z = ref$[1];
+        body = lines.slice(i + 1).join('\n');
+        meta = null;
+        if (m = /^<v(?:\.[^\s>]*)?\s+([^>]+)>/.exec(body)) {
+          meta = {
+            speaker: m[1].trim()
+          };
+        }
+        body = body.replace(/<\/?[^>]+>/g, '').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&');
+        cue = [vttParseTime(a), vttParseTime(z.trim().split(/\s+/)[0]), body];
+        if (meta) {
+          cue.push(meta);
+        }
+        ret.push(cue);
+      }
+      return ret;
+      function fn$(l){
+        return l.trim();
+      }
+      function fn1$(l){
+        return /-->/.test(l);
+      }
+    },
+    stringify: function(captions){
+      var esc, cues;
+      esc = function(s){
+        return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+      };
+      cues = captions.map(function(arg$){
+        var t0, t1, text, meta, body;
+        t0 = arg$[0], t1 = arg$[1], text = arg$[2], meta = arg$[3];
+        body = esc(text);
+        if (meta && meta.speaker) {
+          body = "<v " + esc(meta.speaker) + ">" + body;
+        }
+        return vttTime(t0) + " --> " + vttTime(t1) + "\n" + body;
+      });
+      return "WEBVTT\n\n" + cues.join('\n\n') + '\n';
+    }
+  };
   lotion = {
+    vtt: vtt,
     clamp: clamp,
     lerp: lerp,
     ss: ss,
@@ -609,6 +818,11 @@
     module.exports = lotion;
   } else if (typeof window != 'undefined' && window !== null) {
     window.lotion = lotion;
+  }
+  function in$(x, xs){
+    var i = -1, l = xs.length >>> 0;
+    while (++i < l) if (x === xs[i]) return true;
+    return false;
   }
   function import$(obj, src){
     var own = {}.hasOwnProperty;

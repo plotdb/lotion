@@ -1,10 +1,10 @@
 #!/usr/bin/env node
-var fs, path, http, child_process, usage, parse, types, serve, playwright, open, shot, frames, sheet, WARM, encode, video, cues, bundle, moved, argv, ref$, pos, opt, cmd, src, out, rest, times, p, slice$ = [].slice;
+var fs, path, http, child_process, usage, parse, types, serve, playwright, open, shot, frames, sheet, WARM, encode, video, writeVtt, cues, bundle, moved, argv, ref$, pos, opt, cmd, src, out, rest, times, p, slice$ = [].slice;
 fs = require('fs');
 path = require('path');
 http = require('http');
 child_process = require('child_process');
-usage = 'usage:\n  lotion <frames|sheet|video|cues> <src> <out> [t...] [options]\n  lotion bundle <base-url> <block-name> <out> [options]\n  audio generators ( bgm | sfx | mix | beats ) were removed, see README > Audio\nsee README for options.';
+usage = 'usage:\n  lotion <frames|sheet|video|cues|captions> <src> <out> [t...] [options]\n  lotion bundle <base-url> <block-name> <out> [options]\n  audio generators ( bgm | sfx | mix | beats ) were removed, see README > Audio\nsee README for options.';
 parse = function(argv){
   var ref$, pos, opt, i, a;
   ref$ = [[], {}], pos = ref$[0], opt = ref$[1];
@@ -269,7 +269,7 @@ video = function(src, out, opt){
   workers = Math.max(1, Math.floor(+(opt.workers || 1)));
   t0 = Date.now();
   return open(src, opt).then(function(first){
-    var n, done, tick, finish, k, tmp, parts;
+    var n, done, tick, finish, vtt, k, tmp, parts;
     o.from = +(opt.from || 0);
     n = Math.round((+(opt.to || first.duration) - o.from) * o.fps);
     done = 0;
@@ -282,8 +282,11 @@ video = function(src, out, opt){
     finish = function(){
       return console.log(out + " ( " + n + " frames, " + ((Date.now() - t0) / 1000).toFixed(0) + "s )");
     };
+    vtt = writeVtt(first.page, out, o.from, +(opt.to || first.duration));
     if (workers === 1) {
-      return encode(first.page, 0, n, out, o, tick).then(function(){
+      return vtt.then(function(){
+        return encode(first.page, 0, n, out, o, tick);
+      }).then(function(){
         return first.close();
       }).then(finish);
     }
@@ -302,15 +305,17 @@ video = function(src, out, opt){
         out: path.join(tmp, "part-" + w + ".mp4")
       };
     });
-    return Promise.all([Promise.resolve(first)].concat((function(){
-      var i$, to$, results$ = [];
-      for (i$ = 1, to$ = k; i$ < to$; ++i$) {
-        results$.push(i$);
-      }
-      return results$;
-    }()).map(function(){
-      return open(src, opt);
-    }))).then(function(pages){
+    return vtt.then(function(){
+      return Promise.all([Promise.resolve(first)].concat((function(){
+        var i$, to$, results$ = [];
+        for (i$ = 1, to$ = k; i$ < to$; ++i$) {
+          results$.push(i$);
+        }
+        return results$;
+      }()).map(function(){
+        return open(src, opt);
+      })));
+    }).then(function(pages){
       return Promise.all(parts.map(function(p, w){
         return encode(pages[w].page, p.i0, p.i1, p.out, o, tick);
       }))['finally'](function(){
@@ -343,6 +348,36 @@ video = function(src, out, opt){
         force: true
       });
     }).then(finish);
+  });
+};
+writeVtt = function(page, out, t0, t1){
+  var vtt;
+  vtt = require('./index').vtt;
+  return page.evaluate(function(){
+    return window.CAPTIONS || null;
+  }).then(function(tracks){
+    var langs, base, i$, len$, lang, list, f, results$ = [];
+    if (!tracks) {
+      return;
+    }
+    langs = Object.keys(tracks);
+    base = out.replace(/\.(vtt|mp4|webm|mov)$/i, '');
+    for (i$ = 0, len$ = langs.length; i$ < len$; ++i$) {
+      lang = langs[i$];
+      list = tracks[lang].filter(fn$).map(fn1$);
+      f = langs.length > 1 && lang
+        ? base + "." + lang + ".vtt"
+        : base + ".vtt";
+      fs.writeFileSync(f, vtt.stringify(list));
+      results$.push(console.log(f));
+    }
+    return results$;
+    function fn$(c){
+      return c[1] > t0 && c[0] < t1;
+    }
+    function fn1$(c){
+      return [Math.max(0, c[0] - t0), Math.min(t1, c[1]) - t0].concat(c.slice(2));
+    }
   });
 };
 cues = function(src, out, opt){
@@ -449,6 +484,14 @@ if ((ref$ = argv[0]) === 'bgm' || ref$ === 'sfx' || ref$ === 'mix' || ref$ === '
       return video(src, out, opt);
     case 'cues':
       return cues(src, out, opt);
+    case 'captions':
+      return open(src, opt).then(function(arg$){
+        var page, close;
+        page = arg$.page, close = arg$.close;
+        return writeVtt(page, out, 0, Infinity).then(function(){
+          return close();
+        });
+      });
     case 'bundle':
       if (rest[0]) {
         return bundle(src, out, rest[0], opt);

@@ -1,3 +1,17 @@
+## master
+
+ - player: captions. `captions: [[t0, t1, text, meta?], ...]` or `{lang: [...]}`, drawn outside the stage in a
+   bottom safe area, styled by css variables; readers turn them on / off with the `CC` button, the `c` key or
+   `showCaptions(on)`; `captionsBurned: true` starts them off for scenes that already show the narration.
+   Not drawn in `?render` unless `burnCaptions` ( or `?render&captions` ).
+ - player: events `on` / `off` ( `time`, `chapter`, `caption`, `captions` ) and state `chapter`, `caption`,
+   `captionsOn`, `captionLang`
+ - chapters may carry a third element, `meta` ( such as `{description, thumb}` ), passed through in `player.chapter`
+ - `lotion.vtt.parse` / `stringify`: WebVTT to and from the caption format
+ - cli: `lotion video` writes captions as `.vtt` next to the mp4 ( shifted by `--from` ); `lotion captions` exports
+   them alone. render protocol: `window.CAPTIONS`
+
+
 ## v0.4.2
 
  - animate, size: `clip-path: inset()` ( reveals ) becomes one svg clipPath whose rect moves by smil, instead of one

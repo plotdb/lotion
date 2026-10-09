@@ -94,7 +94,13 @@ svg = (tag, attrs = {}, parent) ->
 #   - width / height: 舞台的設計尺寸, 預設 1920 x 1080. 舞台會等比縮放以填入容器.
 #   - duration: 總長 ( 秒 )
 #   - seek: (t) -> 依 t 更新畫面
-#   - chapters: [[t, name], ...] 選用. 顯示於時間軸, 並供 ← / → 跳段.
+#   - chapters: [[t, name, meta?], ...] 選用. 顯示於時間軸, 並供 ← / → 跳段. meta 為選填物件
+#     ( 如 {description, thumb} ), 播放器不使用, 原樣放在 p.chapter 中供外層取用.
+#   - captions: 字幕 [[t0, t1, text, meta?], ...] ( meta 如 {speaker} ), 或多語言 {zh: [...], en: [...]}.
+#     也可用 lotion.vtt.parse 讀入 WebVTT. 讀者可自由開關 ( 控制列的 CC 鈕、c 鍵、p.showCaptions(on) ).
+#   - captionsBurned: 畫面上已有旁白文字時設為 true: 字幕預設關閉 ( 讀者仍可打開 ). 未設定時預設開啟.
+#   - captionLang: 初始語言, 預設為第一個.
+#   - burnCaptions: ?render 模式 ( 逐格輸出 ) 是否畫上字幕, 預設 false. 網址帶 ?render&captions 亦可.
 #   - start: 初始時間. 網址的 ?t=秒數 優先.
 #   - autoplay: 預設 false
 #   - cues: 選用, -> [{t, name, ...}] 給 cli 匯出音效時間點
@@ -113,12 +119,24 @@ player = (opt = {}) ->
     duration: opt.duration or 0
     chapters: opt.chapters or []
     t: 0
+    # 目前的章節 {index, t, name, meta} 與字幕 {t0, t1, text, meta}; 無則為 null
+    chapter: null
+    caption: null
+    handlers: {}
     playing: false
     last: null
     started: false
   # start() 時 resolve: 供外部 ( 如 block loader ) 等待內容就緒
   @ready = new Promise (res) ~> @ready-res = res
   @render-mode = /[?&]render\b/.test location.search
+  # 字幕: 一律整理成 {lang: [[t0, t1, text, meta?], ...]}, 依開始時間排序
+  c = opt.captions
+  tracks = if !c => {} else if Array.isArray(c) => {'': c} else c
+  @caption-tracks = {}
+  for k, v of tracks => @caption-tracks[k] = v.slice!sort (a, b) -> a.0 - b.0
+  @caption-langs = Object.keys @caption-tracks
+  @caption-lang = if opt.captionLang in @caption-langs => opt.captionLang else (@caption-langs.0 ? null)
+  @captions-on = if @render-mode => !!(opt.burnCaptions or /[?&]captions\b/.test location.search) else !opt.captionsBurned
   @init!
   @
 
@@ -142,15 +160,20 @@ player.prototype = Object.create(Object.prototype) <<<
       <div class="lotion-track"><div class="lotion-rail"></div><div class="lotion-fill"></div>
       <div class="lotion-chapters"></div><div class="lotion-knob"></div></div>
       <div class="lotion-time"></div>
+      <div class="lotion-btn lotion-cc" title="字幕 ( c )">CC</div>
       <div class="lotion-btn lotion-fs" title="全螢幕"><svg width="16" height="16" viewBox="0 0 16 16" fill="none"
       stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M2 6V2h4M10 2h4v4M14 10v4h-4M6 14H2v-4"/></svg></div>
     ''', r
     q = (n) ~> @bar.querySelector ".lotion-#n"
-    @el = {play: q(\play), fill: q(\fill), knob: q(\knob), time: q(\time), track: q(\track), chapters: q(\chapters), fs: q(\fs)}
-    @chapters.map ([t, name]) ~>
+    @el = {play: q(\play), fill: q(\fill), knob: q(\knob), time: q(\time), track: q(\track), chapters: q(\chapters), fs: q(\fs), cc: q(\cc)}
+    @chapters.map ([t, name, meta]) ~>
       e = mk \lotion-ch, '', @el.chapters
-      e.title = name
+      e.title = name + (if meta and meta.description => "\n#{meta.description}" else '')
       e.style.left = "#{100 * t / @duration}%"
+    # 字幕放在舞台之外 ( 不隨舞台縮放, 不進入線上匯出的截圖 ), 位於視窗底部的安全區
+    @el.captions = mk \lotion-captions, '', @viewport
+    if !@caption-langs.length => @el.cc.remove!
+    @root.classList.toggle \lotion-captions-on, @captions-on
     @bind!
     if @render-mode => r.classList.add \lotion-render
     @fit!
@@ -166,6 +189,8 @@ player.prototype = Object.create(Object.prototype) <<<
       window.seek = (t) ~> @opt.seek t
       window.DURATION = @duration
       if @opt.cues => window.cues = @opt.cues
+      # cli 依此輸出 .vtt
+      if @caption-langs.length => window.CAPTIONS = @caption-tracks
     @ready-res @
     m = /[?&]t=([\d.]+)/.exec location.search
     @seek(if m => +m.1 else if @render-mode => 0 else (@opt.start or 0))
@@ -175,6 +200,7 @@ player.prototype = Object.create(Object.prototype) <<<
   bind: ->
     @el.play.addEventListener \click, (e) ~> e.stopPropagation!; @toggle!
     @el.fs.addEventListener \click, (e) ~> e.stopPropagation!; @fullscreen!
+    @el.cc.addEventListener \click, (e) ~> e.stopPropagation!; @show-captions !@captions-on
     @viewport.addEventListener \click, ~> @root.focus!; @toggle!
     dragging = false
     from-event = (e) ~>
@@ -191,6 +217,7 @@ player.prototype = Object.create(Object.prototype) <<<
       starts = @chapters.map (c) -> c.0
       if e.code == \Space => e.preventDefault!; @toggle!
       else if e.key == \f => @fullscreen!
+      else if e.key == \c and @caption-langs.length => @show-captions !@captions-on
       else if e.key == \ArrowRight => @seek(starts.find((s) ~> s > @t + 0.05) ? @duration)
       else if e.key == \ArrowLeft => @seek(starts.filter((s) ~> s < @t - 0.5).pop! ? 0)
 
@@ -212,9 +239,50 @@ player.prototype = Object.create(Object.prototype) <<<
     p = "#{100 * t / @duration}%"
     @el.fill.style.width = p
     @el.knob.style.left = p
-    ch = @chapters.filter((c) -> c.0 <= t).pop!
+    ci = -1
+    for c, i in @chapters when c.0 <= t => ci = i
+    ch = @chapters[ci]
     @el.time.textContent = (if ch => "#{ch.1} · " else '') + "#{@fmt t} / #{@fmt @duration}"
     @root.classList.toggle \lotion-playing, @playing
+    if (if ch => ci else -1) != (if @chapter => @chapter.index else -1)
+      @chapter = if ch => {index: ci, t: ch.0, name: ch.1, meta: ch.2 or null} else null
+      @fire \chapter, @chapter
+    @update-caption!
+    @fire \time, t
+
+  # 目前時間的字幕 ( 同時有多段時以換行合併 ); 改變時更新畫面並送出 caption 事件
+  update-caption: ->
+    t = @t
+    list = (@caption-lang? and @caption-tracks[@caption-lang]) or []
+    act = list.filter (c) -> c.0 <= t and t < c.1
+    cap = if !act.length => null else
+      {t0: act.0.0, t1: act[* - 1].1, text: act.map((c) -> c.2).join('\n'), meta: act.0.3 or null, lang: @caption-lang}
+    key = (c) -> if c => "#{c.lang}|#{c.t0}|#{c.text}" else ''
+    if key(cap) == key(@caption) => return
+    @caption = cap
+    @el.captions.innerHTML = ''
+    if cap => for line in cap.text.split('\n') => mk \lotion-caption, '', @el.captions .textContent = line
+    @fire \caption, cap
+
+  # 字幕開關 ( 讀者偏好 ). 狀態為 p.captionsOn; 送出 captions 事件 {on, lang}
+  show-captions: (v = true) ->
+    @captions-on = !!v
+    @root.classList.toggle \lotion-captions-on, @captions-on
+    @fire \captions, {on: @captions-on, lang: @caption-lang}
+    @
+  set-caption-lang: (lang) ->
+    if !(lang in @caption-langs) => return @
+    @caption-lang = lang
+    @update-caption!
+    @fire \captions, {on: @captions-on, lang}
+    @
+
+  # 事件: time ( t ), chapter ( p.chapter ), caption ( p.caption ), captions ( {on, lang} )
+  'on': (name, cb) -> (@handlers[name] ?= []).push cb; @
+  'off': (name, cb) ->
+    if @handlers[name] => @handlers[name] = @handlers[name].filter (h) -> h != cb
+    @
+  fire: (name, v) -> for h in (@handlers[name] or []).slice! => h v
 
   tick: (now) ->
     if !@playing => return
@@ -350,8 +418,43 @@ encode = (opt = {}) ->
       if output and output.state in <[started pending]> => output.cancel!
       throw e
 
+# ---------- WebVTT ----------
+# 字幕格式與 WebVTT 互轉. captions: [[t0, t1, text, meta?], ...]; meta.speaker 對應 <v 名稱>
+vtt-time = (t) ->
+  ms = Math.round(t * 1000)
+  h = Math.floor(ms / 3600000); m = Math.floor(ms / 60000) % 60; s = Math.floor(ms / 1000) % 60
+  pad = (v, n = 2) -> "#v".padStart n, '0'
+  "#{pad h}:#{pad m}:#{pad s}.#{pad ms % 1000, 3}"
+vtt-parse-time = (s) ->
+  p = s.trim!split ':'
+  p.reduce ((a, v) -> a * 60 + parseFloat(v)), 0
+vtt =
+  parse: (text) ->
+    ret = []
+    blocks = text.replace(/\r\n?/g, '\n').split(/\n{2,}/)
+    for b in blocks
+      lines = b.split('\n').filter (l) -> l.trim!
+      i = lines.findIndex (l) -> /-->/.test l
+      if i < 0 => continue
+      [a, z] = lines[i].split('-->')
+      body = lines.slice(i + 1).join('\n')
+      meta = null
+      if m = /^<v(?:\.[^\s>]*)?\s+([^>]+)>/.exec body => meta = {speaker: m.1.trim!}
+      body = body.replace(/<\/?[^>]+>/g, '').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&')
+      cue = [vtt-parse-time(a), vtt-parse-time(z.trim!split(/\s+/).0), body]
+      if meta => cue.push meta
+      ret.push cue
+    ret
+  stringify: (captions) ->
+    esc = (s) -> s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    cues = captions.map ([t0, t1, text, meta]) ->
+      body = esc text
+      if meta and meta.speaker => body = "<v #{esc meta.speaker}>#body"
+      "#{vtt-time t0} --> #{vtt-time t1}\n#body"
+    "WEBVTT\n\n" + cues.join('\n\n') + '\n'
+
 lotion = {
-  clamp, lerp, ss, spring, presets, track, vis, bump, typing
+  vtt, clamp, lerp, ss, spring, presets, track, vis, bump, typing
   hex, mixc, rgb, mk, put, txt, svg, player, encode, libs, lib
 }
 

@@ -48,7 +48,14 @@ player options:
  - `width`, `height`: design size of the stage. default `1920` x `1080`. The stage scales to fit the container.
  - `duration`: total length in seconds.
  - `seek(t)`: render the frame at time `t`. must depend on `t` only.
- - `chapters`: optional `[[t, name], ...]`, shown as ticks on the timeline and used by `←` / `→`.
+ - `chapters`: optional `[[t, name, meta?], ...]`, shown as ticks on the timeline and used by `←` / `→`. `meta` is
+   an optional object ( such as `{description, thumb}` ) the player passes through in `player.chapter`.
+ - `captions`: optional `[[t0, t1, text, meta?], ...]` ( `meta` such as `{speaker}` ), or `{zh: [...], en: [...]}`
+   for several languages. See Captions.
+ - `captionsBurned`: `true` when the scene already shows the narration as text: captions start off. default
+   `false` ( captions start on ). Readers can always turn them on or off.
+ - `captionLang`: initial caption language. default the first one.
+ - `burnCaptions`: draw captions in `?render` mode ( frame export ). default `false`; `?render&captions` also works.
  - `start`: initial time. `?t=<sec>` in the url takes precedence.
  - `autoplay`: default `false`.
  - `cues`: optional function returning sound cues `[{t, ...}]`, exported by `lotion cues`.
@@ -56,8 +63,19 @@ player options:
    `false` shows nothing.
 
 player methods: `start()`, `seek(t)`, `play(go = true)`, `pause()`, `toggle()`, `fullscreen()`, `encode(opt)`
-( see Online Export ).
+( see Online Export ), `showCaptions(on = true)`, `setCaptionLang(lang)`, `on(name, cb)`, `off(name, cb)`.
 `player.ready` is a promise resolved by `start()`.
+
+player state: `t`, `playing`, `chapter` ( `{index, t, name, meta}` or `null` ), `caption`
+( `{t0, t1, text, meta, lang}` or `null` ), `captionsOn`, `captionLang`, `captionLangs`.
+
+events ( `player.on(name, cb)` ):
+
+ - `time`: every seek, with `t`.
+ - `chapter`: the current chapter changed, with `player.chapter`.
+ - `caption`: the shown caption changed ( including to `null` ), with `player.caption`. Fired whether captions
+   are on or off, so a page can read them anyway ( search, transcripts ).
+ - `captions`: captions turned on / off or switched language, with `{on, lang}`.
 
 Until `start()` is called, the stage is hidden behind the loading screen, the control bar is disabled, and
 `seek` / `play` do nothing. Scenes often need asynchronous preparation before the first frame is right
@@ -65,7 +83,25 @@ Until `start()` is called, the stage is hidden behind the loading screen, the co
 So build the scene, finish whatever it waits for, then call `start()`:
 
     Promise.all([document.fonts.ready, prepare!]).then -> p.start!
-Keys ( when the player is focused ): `space` play / pause, `←` / `→` previous / next chapter, `f` fullscreen.
+Keys ( when the player is focused ): `space` play / pause, `←` / `→` previous / next chapter, `f` fullscreen,
+`c` captions on / off.
+
+### Captions
+
+Captions are drawn by the player, outside the stage: they keep their size when the stage scales, sit in a safe
+area at the bottom, and are not part of `encode()` frames. Style them with css variables on `.lotion`:
+`--lotion-caption-size`, `--lotion-caption-bg`, `--lotion-caption-color`, `--lotion-caption-font`.
+The control bar shows a `CC` button when there are captions.
+
+`lotion.vtt.parse(text)` reads WebVTT into the caption format ( a `<v name>` voice becomes `{speaker}` ),
+`lotion.vtt.stringify(captions)` writes it back. `lotion video` writes a `.vtt` next to the mp4, and
+`lotion captions` exports it alone.
+
+Guidelines for splitting ( common subtitle practice ): Traditional Chinese up to about 16 characters a line, at most
+2 lines, no faster than about 9 characters a second; English up to about 42 characters a line, 17 - 20 a second.
+Keep each caption on screen 0.83 - 7 s, with at least 2 frames between captions. Break at punctuation or pauses,
+not inside a phrase; merge captions that are too short. With word timings from a speech generator, cut at sentence
+ends and at pauses longer than about 0.3 s, then split or merge by those limits.
 
 helpers:
 
@@ -185,6 +221,8 @@ With `?render` in the url, a page should cover the viewport with its stage and e
  - `window.seek(t)`: render the frame at `t`.
  - `window.DURATION`: total length in seconds.
  - `window.cues()`: optional, list of sound cues.
+ - `window.CAPTIONS`: optional, captions as `{lang: [[t0, t1, text, meta?], ...]}` ( `lotion video` writes them as
+   `.vtt` ).
 
 `lotion.player` does this automatically, and only when `start()` is called: the cli waits for `window.seek` to
 exist before rendering, so it never captures a scene that is still being prepared. Any other page can follow
@@ -220,8 +258,9 @@ targets under the root ( or use `:scope` ). A block sample is in `web/src/pug/bl
 
     lotion frames <src> <outdir> <t...>      one png per time
     lotion sheet  <src> <out.png> <t...>     the same, tiled into one contact sheet
-    lotion video  <src> <out.mp4>            render to mp4
+    lotion video  <src> <out.mp4>            render to mp4, plus <out>.vtt when the page has captions
     lotion cues   <src> <out.json>           dump window.cues()
+    lotion captions <src> <out.vtt>          export captions as WebVTT ( out.<lang>.vtt for several languages )
     lotion bundle <base-url> <block> <out>   pack a block and its dependencies into one file
     lotion bgm | sfx | mix | beats           removed, see Audio
 

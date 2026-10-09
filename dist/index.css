@@ -66,6 +66,52 @@
   color: var(--lotion-ink);
   border: 1px solid var(--lotion-line);
 }
+.lotion .lotion-cc {
+  width: auto;
+  height: 28px;
+  padding: 0 8px;
+  border-radius: 6px;
+  font: 600 13px/1 sans-serif;
+  letter-spacing: 0.04em;
+  background: transparent;
+  color: var(--lotion-ink);
+  border: 1px solid var(--lotion-line);
+}
+.lotion.lotion-captions-on .lotion-cc {
+  background: var(--lotion-ink);
+  border-color: var(--lotion-ink);
+  color: #fff;
+}
+.lotion .lotion-viewport {
+  container-type: inline-size;
+}
+.lotion .lotion-captions {
+  --lotion-caption-size: clamp(14px, 2.6cqw, 44px);
+  position: absolute;
+  left: 10%;
+  right: 10%;
+  bottom: 6%;
+  display: none;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.2em;
+  pointer-events: none;
+  text-align: center;
+  font-size: var(--lotion-caption-size);
+  line-height: 1.35;
+}
+.lotion.lotion-captions-on .lotion-captions {
+  display: flex;
+}
+.lotion .lotion-caption {
+  max-width: 100%;
+  padding: 0.12em 0.5em;
+  border-radius: 0.2em;
+  background: var(--lotion-caption-bg, rgba(0,0,0,0.72));
+  color: var(--lotion-caption-color, #fff);
+  font-family: var(--lotion-caption-font, sans-serif);
+  white-space: pre-wrap;
+}
 .lotion .lotion-time {
   font: 15px/1 sans-serif;
   color: var(--lotion-mute);

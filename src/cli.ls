@@ -1,11 +1,13 @@
 # lotion cli: 以 playwright 開啟動畫頁面, 依 render 協定逐格截圖.
-#  render 協定: 頁面帶 ?render 時須提供 window.seek(t) 與 window.DURATION; 選用 window.cues().
+#  render 協定: 頁面帶 ?render 時須提供 window.seek(t) 與 window.DURATION; 選用 window.cues() 與
+#  window.CAPTIONS ( 字幕 {lang: [[t0, t1, text, meta?], ...]} ).
 #  lotion.player 會自動提供; 其它頁面自行設定這兩個值即可.
 #
 #  lotion frames <src> <outdir> <t...>      指定時間點各輸出一張 png
 #  lotion sheet  <src> <out.png> <t...>     同上, 但拼成一張 contact sheet, 方便快速檢查版面
-#  lotion video  <src> <out.mp4>            輸出影片 ( 需要 ffmpeg )
+#  lotion video  <src> <out.mp4>            輸出影片 ( 需要 ffmpeg ). 頁面有字幕時, 另輸出同名的 .vtt
 #  lotion cues   <src> <out.json>           匯出 window.cues() 的結果 ( 音效時間點 )
+#  lotion captions <src> <out.vtt>          匯出字幕為 WebVTT ( 多語言時為 out.<lang>.vtt )
 #  lotion bundle <base-url> <block> <out>   以 @plotdb/block 的 manager.bundle 把 block 與其依賴打包成單一檔案
 #  lotion bgm | sfx | mix | beats           已移除 ( 移到尚未公開的 @plotdb/lotitor ), 這裡只提示
 #
@@ -24,7 +26,7 @@ require! <[fs path http child_process]>
 
 usage = '''
   usage:
-    lotion <frames|sheet|video|cues> <src> <out> [t...] [options]
+    lotion <frames|sheet|video|cues|captions> <src> <out> [t...] [options]
     lotion bundle <base-url> <block-name> <out> [options]
     audio generators ( bgm | sfx | mix | beats ) were removed, see README > Audio
   see README for options.
@@ -157,11 +159,12 @@ video = (src, out, opt) ->
     tick = -> if ++done % 300 == 0 => console.log "frame #done/#n #{((Date.now! - t0) / 1000).toFixed(0)}s"
     console.log "frame 0/#n 0s" + (if workers > 1 => " ( #workers workers )" else '')
     finish = -> console.log "#out ( #n frames, #{((Date.now! - t0) / 1000).toFixed(0)}s )"
-    if workers == 1 => return encode(first.page, 0, n, out, o, tick).then(-> first.close!).then finish
+    vtt = write-vtt first.page, out, o.from, +(opt.to or first.duration)
+    if workers == 1 => return vtt.then(-> encode first.page, 0, n, out, o, tick).then(-> first.close!).then finish
     k = Math.min workers, n
     tmp = fs.mkdtempSync path.join(require(\os).tmpdir!, 'lotion-')
     parts = [0 til k].map (w) -> {i0: Math.floor(n * w / k), i1: Math.floor(n * (w + 1) / k), out: path.join(tmp, "part-#w.mp4")}
-    Promise.all([Promise.resolve(first)] ++ [1 til k].map(-> open src, opt))
+    vtt.then(-> Promise.all [Promise.resolve(first)] ++ [1 til k].map(-> open src, opt))
       .then (pages) ->
         Promise.all(parts.map (p, w) -> encode(pages[w].page, p.i0, p.i1, p.out, o, tick))
           .finally -> Promise.all pages.map (p) -> p.close!
@@ -175,6 +178,20 @@ video = (src, out, opt) ->
           ff.on \close, (c) -> if c => rej new Error("ffmpeg concat exited with #c") else res!
       .finally -> fs.rmSync tmp, {recursive: true, force: true}
       .then finish
+
+# 字幕寫成 WebVTT: 只取 [from, to) 範圍內的段落, 時間改為相對 from. 多語言時每個語言一個檔
+write-vtt = (page, out, t0, t1) ->
+  {vtt} = require './index'
+  page.evaluate(-> window.CAPTIONS or null).then (tracks) ->
+    if !tracks => return
+    langs = Object.keys tracks
+    base = out.replace /\.(vtt|mp4|webm|mov)$/i, ''
+    for lang in langs
+      list = tracks[lang].filter((c) -> c.1 > t0 and c.0 < t1).map (c) ->
+        [Math.max(0, c.0 - t0), Math.min(t1, c.1) - t0] ++ c.slice(2)
+      f = if langs.length > 1 and lang => "#base.#lang.vtt" else "#base.vtt"
+      fs.writeFileSync f, vtt.stringify list
+      console.log f
 
 cues = (src, out, opt) ->
   open(src, opt).then ({page, close}) ->
@@ -228,6 +245,7 @@ else
   | \sheet => sheet src, out, times, opt
   | \video => video src, out, opt
   | \cues => cues src, out, opt
+  | \captions => (open(src, opt).then ({page, close}) -> write-vtt(page, out, 0, Infinity).then -> close!)
   | \bundle => (if rest.0 => bundle(src, out, rest.0, opt) else null)
   | otherwise => null
   if !p or !src or !out => console.log usage; process.exit 1
