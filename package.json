@@ -1,7 +1,7 @@
 {
   "author": "zbryikt",
   "name": "@plotdb/lotion",
-  "version": "0.4.1",
+  "version": "0.4.2",
   "description": "deterministic motion toolkit: animation as a pure function of time, with player, frame renderer and block packaging",
   "license": "MIT",
   "main": "dist/index.min.js",
