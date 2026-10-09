@@ -1,4 +1,4 @@
-## master
+## v0.5.0
 
  - player: captions. `captions: [[t0, t1, text, meta?], ...]` or `{lang: [...]}`, drawn outside the stage in a
    bottom safe area, styled by css variables; readers turn them on / off with the `CC` button, the `c` key or
