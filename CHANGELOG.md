@@ -1,4 +1,4 @@
-## master
+## v0.4.1
 
  - bug fix:
    - vector / animate: box-shadow and text-shadow are reordered to "offsets blur spread color", since computed style
