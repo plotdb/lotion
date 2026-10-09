@@ -1,4 +1,4 @@
-## master
+## v0.4.2
 
  - animate, size: `clip-path: inset()` ( reveals ) becomes one svg clipPath whose rect moves by smil, instead of one
    appearance per inset ( lotitor's sumi-ink trial: html variants 68 to 35 )
