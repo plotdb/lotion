@@ -101,6 +101,8 @@ svg = (tag, attrs = {}, parent) ->
 #   - captionsBurned: 畫面上已有旁白文字時設為 true: 字幕預設關閉 ( 讀者仍可打開 ). 未設定時預設開啟.
 #   - captionLang: 初始語言, 預設為第一個.
 #   - burnCaptions: ?render 模式 ( 逐格輸出 ) 是否畫上字幕, 預設 false. 網址帶 ?render&captions 亦可.
+#   - doc: 作品的文稿 ( Markdown, 實驗性, 格式見 spec/document.md ). 未給時讀頁面中的
+#     <script type="text/markdown" id="lotion-doc">. 存於 p.doc.
 #   - start: 初始時間. 網址的 ?t=秒數 優先.
 #   - autoplay: 預設 false
 #   - cues: 選用, -> [{t, name, ...}] 給 cli 匯出音效時間點
@@ -183,6 +185,8 @@ player.prototype = Object.create(Object.prototype) <<<
   # 內容建好後呼叫: 移除載入畫面、顯示初始畫面, 並依設定自動播放
   start: ->
     @started = true
+    # 文稿: 選項優先, 其次是頁面中的 #lotion-doc ( start 時才讀, 頁面已解析完 )
+    @doc = @opt.doc or document.getElementById('lotion-doc')?textContent?trim! or null
     @root.classList.remove \lotion-loading
     if @loading => @loading.remove!
     if @render-mode
@@ -191,6 +195,9 @@ player.prototype = Object.create(Object.prototype) <<<
       if @opt.cues => window.cues = @opt.cues
       # cli 依此輸出 .vtt
       if @caption-langs.length => window.CAPTIONS = @caption-tracks
+      # cli 依此輸出文稿 ( lotion doc ); 沒有文稿時以章節與字幕起草
+      if @doc => window.DOC = @doc
+      if @chapters.length => window.CHAPTERS = @chapters
     @ready-res @
     m = /[?&]t=([\d.]+)/.exec location.search
     @seek(if m => +m.1 else if @render-mode => 0 else (@opt.start or 0))
@@ -453,8 +460,38 @@ vtt =
       "#{vtt-time t0} --> #{vtt-time t1}\n#body"
     "WEBVTT\n\n" + cues.join('\n\n') + '\n'
 
+# ---------- 文稿 ( 實驗性, spec/document.md ) ----------
+# draft: 以章節與字幕起草一份文稿. opt: {title, lang, duration, chapters, captions}
+#  captions 可為陣列或 {lang: [...]} ( 取 lang 或第一個語言 ). 每章一節 ( 標題帶 {t=a-b} ), 章內的字幕列為 say:
+doc =
+  draft: (opt = {}) ->
+    c = opt.captions
+    tracks = if !c => {} else if Array.isArray(c) => {'': c} else c
+    lang = if opt.lang and tracks[opt.lang] => opt.lang else Object.keys(tracks).0
+    caps = (if lang? => tracks[lang] else []).slice!sort (a, b) -> a.0 - b.0
+    dur = opt.duration
+    num = (v) -> +(+v).toFixed(2)
+    q = (v) -> JSON.stringify "#v"
+    fm = ['---', 'lotion: 1']
+    if opt.title => fm.push "title: #{q opt.title}"
+    if opt.lang or lang => fm.push "lang: #{opt.lang or lang}"
+    if dur => fm.push 'kind: linear', "duration: #{num dur}"
+    fm.push '---', ''
+    chs = (opt.chapters or []).slice!sort (a, b) -> a.0 - b.0
+    parts = if chs.length => chs.map (ch, i) -> {name: ch.1, t0: ch.0, t1: (chs[i + 1]?0 ? dur), meta: ch.2}
+    else [{name: (opt.title or 'content'), t0: 0, t1: dur}]
+    out = fm
+    for p in parts
+      range = if p.t1? => " {t=#{num p.t0}-#{num p.t1}}" else " {t=#{num p.t0}-}"
+      out.push "## #{p.name}#range", ''
+      if p.meta and p.meta.description => out.push p.meta.description, ''
+      says = caps.filter (c) -> c.0 >= p.t0 and (!p.t1? or c.0 < p.t1)
+      for c in says => out.push "- say: #{c.2.replace /\n/g, ' '}"
+      if says.length => out.push ''
+    out.join('\n')
+
 lotion = {
-  vtt, clamp, lerp, ss, spring, presets, track, vis, bump, typing
+  doc, vtt, clamp, lerp, ss, spring, presets, track, vis, bump, typing
   hex, mixc, rgb, mk, put, txt, svg, player, encode, libs, lib
 }
 

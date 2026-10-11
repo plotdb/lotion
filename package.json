@@ -11,7 +11,8 @@
   },
   "files": [
     "dist/**/*",
-    "prompt/**/*"
+    "prompt/**/*",
+    "spec/**/*"
   ],
   "homepage": "https://github.com/plotdb/lotion",
   "repository": {

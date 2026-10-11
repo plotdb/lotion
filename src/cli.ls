@@ -8,6 +8,7 @@
 #  lotion video  <src> <out.mp4>            輸出影片 ( 需要 ffmpeg ). 頁面有字幕時, 另輸出同名的 .vtt
 #  lotion cues   <src> <out.json>           匯出 window.cues() 的結果 ( 音效時間點 )
 #  lotion captions <src> <out.vtt>          匯出字幕為 WebVTT ( 多語言時為 out.<lang>.vtt )
+#  lotion doc    <src> <out.md>             匯出文稿 ( window.DOC ); 沒有時以章節與字幕起草 ( spec/document.md )
 #  lotion bundle <base-url> <block> <out>   以 @plotdb/block 的 manager.bundle 把 block 與其依賴打包成單一檔案
 #  lotion bgm | sfx | mix | beats           已移除 ( 移到尚未公開的 @plotdb/lotitor ), 這裡只提示
 #
@@ -26,7 +27,7 @@ require! <[fs path http child_process]>
 
 usage = '''
   usage:
-    lotion <frames|sheet|video|cues|captions> <src> <out> [t...] [options]
+    lotion <frames|sheet|video|cues|captions|doc> <src> <out> [t...] [options]
     lotion bundle <base-url> <block-name> <out> [options]
     audio generators ( bgm | sfx | mix | beats ) were removed, see README > Audio
   see README for options.
@@ -193,6 +194,16 @@ write-vtt = (page, out, t0, t1) ->
       fs.writeFileSync f, vtt.stringify list
       console.log f
 
+# 文稿: 頁面有就原樣輸出, 否則以章節、字幕與頁面標題起草
+write-doc = (src, out, opt) ->
+  open(src, opt).then ({page, close}) ->
+    page.evaluate(-> {doc: window.DOC, chapters: window.CHAPTERS, captions: window.CAPTIONS, duration: window.DURATION, title: document.title, lang: document.documentElement.lang})
+      .then (r) ->
+        text = if r.doc => r.doc else require('./index').doc.draft(r)
+        fs.write-file-sync out, text.replace(/\s*$/, '\n')
+        console.log "#out ( #{if r.doc => 'from the page' else 'drafted from chapters and captions'} )"
+      .then -> close!
+
 cues = (src, out, opt) ->
   open(src, opt).then ({page, close}) ->
     page.evaluate(-> if window.cues => window.cues! else [])
@@ -245,6 +256,7 @@ else
   | \sheet => sheet src, out, times, opt
   | \video => video src, out, opt
   | \cues => cues src, out, opt
+  | \doc => write-doc src, out, opt
   | \captions => (open(src, opt).then ({page, close}) -> write-vtt(page, out, 0, Infinity).then -> close!)
   | \bundle => (if rest.0 => bundle(src, out, rest.0, opt) else null)
   | otherwise => null
