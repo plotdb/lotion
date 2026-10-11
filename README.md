@@ -56,6 +56,8 @@ player options:
    `false` ( captions start on ). Readers can always turn them on or off.
  - `captionLang`: initial caption language. default the first one.
  - `burnCaptions`: draw captions in `?render` mode ( frame export ). default `false`; `?render&captions` also works.
+ - `doc`: the work's document, a Markdown string ( see Document ). Without it the player reads
+   `<script type="text/markdown" id="lotion-doc">` from the page. Available as `player.doc`.
  - `start`: initial time. `?t=<sec>` in the url takes precedence.
  - `autoplay`: default `false`.
  - `cues`: optional function returning sound cues `[{t, ...}]`, exported by `lotion cues`.
@@ -119,6 +121,18 @@ helpers:
  - `txt(el, html)`: set innerHTML only when changed.
  - `svg(tag, attrs, parent)`: create an svg element.
 
+
+### Document ( experimental )
+
+A work can carry a Markdown document describing what it says and shows, its sources and what it is built with, for
+readers that should not have to run or parse the code ( search, review, translation, agents ). The spec,
+[`spec/document.md`](spec/document.md), fixes only where the document lives ( the `doc` option, an embedded
+`#lotion-doc` script, or `index.md` beside `index.html` ), how it refers to other things ( npm style refs such as
+`@plotdb/lotitor@0.0.1:style/p-sumi-e` ), and that readers ignore what they do not know. Everything in it is
+optional, and it fits linear, looping, infinite and interactive works alike.
+
+`lotion.doc.draft({title, lang, duration, chapters, captions})` drafts one from chapters and captions;
+`lotion doc <src> <out.md>` exports a page's document, or that draft when it has none.
 
 ## Online Export
 
@@ -221,6 +235,7 @@ With `?render` in the url, a page should cover the viewport with its stage and e
  - `window.seek(t)`: render the frame at `t`.
  - `window.DURATION`: total length in seconds.
  - `window.cues()`: optional, list of sound cues.
+ - `window.DOC`, `window.CHAPTERS`: optional, the work's document and chapters ( `lotion doc` uses them ).
  - `window.CAPTIONS`: optional, captions as `{lang: [[t0, t1, text, meta?], ...]}` ( `lotion video` writes them as
    `.vtt` ).
 
@@ -261,6 +276,7 @@ targets under the root ( or use `:scope` ). A block sample is in `web/src/pug/bl
     lotion video  <src> <out.mp4>            render to mp4, plus <out>.vtt when the page has captions
     lotion cues   <src> <out.json>           dump window.cues()
     lotion captions <src> <out.vtt>          export captions as WebVTT ( out.<lang>.vtt for several languages )
+    lotion doc    <src> <out.md>             export the work's document, or draft one from chapters and captions
     lotion bundle <base-url> <block> <out>   pack a block and its dependencies into one file
     lotion bgm | sfx | mix | beats           removed, see Audio
 

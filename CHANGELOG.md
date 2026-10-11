@@ -1,3 +1,14 @@
+## v0.6.0
+
+ - document ( experimental ): a work can carry a Markdown document describing it, for search, review, translation and
+   agents. `spec/document.md` fixes where it lives ( player option `doc`, an embedded
+   `<script type="text/markdown" id="lotion-doc">`, or `index.md` ), npm style refs for things it uses
+   ( `@plotdb/lotitor@0.0.1:style/p-sumi-e` ), optional front matter ( `kind` covers linear, loop, infinite and
+   interactive works; extensions go in `ext` keyed by package ), and that readers ignore what they do not know.
+   `player.doc`, `lotion.doc.draft()`, `lotion doc <src> <out.md>`; render protocol: `window.DOC`, `window.CHAPTERS`.
+   The spec ships in the package.
+
+
 ## v0.5.0
 
  - player: captions. `captions: [[t0, t1, text, meta?], ...]` or `{lang: [...]}`, drawn outside the stage in a

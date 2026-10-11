@@ -1,5 +1,5 @@
 (function(){
-  var PI, sin, cos, exp, sqrt, round, clamp, lerp, ss, spring, presets, track, vis, bump, typing, hex, mixc, rgb, mk, put, txt, NS, svg, player, ref$, libs, libCache, lib, encode, vttTime, vttParseTime, vtt, lotion;
+  var PI, sin, cos, exp, sqrt, round, clamp, lerp, ss, spring, presets, track, vis, bump, typing, hex, mixc, rgb, mk, put, txt, NS, svg, player, ref$, libs, libCache, lib, encode, vttTime, vttParseTime, vtt, doc, lotion;
   PI = Math.PI, sin = Math.sin, cos = Math.cos, exp = Math.exp, sqrt = Math.sqrt, round = Math.round;
   clamp = function(v, a, b){
     a == null && (a = 0);
@@ -283,8 +283,9 @@
       });
     }
   }, ref$.start = function(){
-    var m, this$ = this;
+    var ref$, ref1$, m, this$ = this;
     this.started = true;
+    this.doc = this.opt.doc || ((ref$ = document.getElementById('lotion-doc')) != null ? (ref1$ = ref$.textContent) != null ? ref1$.trim() : void 8 : void 8) || null;
     this.root.classList.remove('lotion-loading');
     if (this.loading) {
       this.loading.remove();
@@ -299,6 +300,12 @@
       }
       if (this.captionLangs.length) {
         window.CAPTIONS = this.captionTracks;
+      }
+      if (this.doc) {
+        window.DOC = this.doc;
+      }
+      if (this.chapters.length) {
+        window.CHAPTERS = this.chapters;
       }
     }
     this.readyRes(this);
@@ -791,7 +798,87 @@
       return "WEBVTT\n\n" + cues.join('\n\n') + '\n';
     }
   };
+  doc = {
+    draft: function(opt){
+      var c, tracks, lang, caps, dur, num, q, fm, chs, parts, out, i$, len$, p, range, says, j$, len1$;
+      opt == null && (opt = {});
+      c = opt.captions;
+      tracks = !c
+        ? {}
+        : Array.isArray(c) ? {
+          '': c
+        } : c;
+      lang = opt.lang && tracks[opt.lang]
+        ? opt.lang
+        : Object.keys(tracks)[0];
+      caps = (lang != null
+        ? tracks[lang]
+        : []).slice().sort(function(a, b){
+        return a[0] - b[0];
+      });
+      dur = opt.duration;
+      num = function(v){
+        return +(+v).toFixed(2);
+      };
+      q = function(v){
+        return JSON.stringify(v + "");
+      };
+      fm = ['---', 'lotion: 1'];
+      if (opt.title) {
+        fm.push("title: " + q(opt.title));
+      }
+      if (opt.lang || lang) {
+        fm.push("lang: " + (opt.lang || lang));
+      }
+      if (dur) {
+        fm.push('kind: linear', "duration: " + num(dur));
+      }
+      fm.push('---', '');
+      chs = (opt.chapters || []).slice().sort(function(a, b){
+        return a[0] - b[0];
+      });
+      parts = chs.length
+        ? chs.map(function(ch, i){
+          var ref$, ref1$;
+          return {
+            name: ch[1],
+            t0: ch[0],
+            t1: (ref$ = (ref1$ = chs[i + 1]) != null ? ref1$[0] : void 8) != null ? ref$ : dur,
+            meta: ch[2]
+          };
+        })
+        : [{
+          name: opt.title || 'content',
+          t0: 0,
+          t1: dur
+        }];
+      out = fm;
+      for (i$ = 0, len$ = parts.length; i$ < len$; ++i$) {
+        p = parts[i$];
+        range = p.t1 != null
+          ? " {t=" + num(p.t0) + "-" + num(p.t1) + "}"
+          : " {t=" + num(p.t0) + "-}";
+        out.push("## " + p.name + range, '');
+        if (p.meta && p.meta.description) {
+          out.push(p.meta.description, '');
+        }
+        says = caps.filter(fn$);
+        for (j$ = 0, len1$ = says.length; j$ < len1$; ++j$) {
+          c = says[j$];
+          out.push("- say: " + c[2].replace(/\n/g, ' '));
+        }
+        if (says.length) {
+          out.push('');
+        }
+      }
+      return out.join('\n');
+      function fn$(c){
+        return c[0] >= p.t0 && (p.t1 == null || c[0] < p.t1);
+      }
+    }
+  };
   lotion = {
+    doc: doc,
     vtt: vtt,
     clamp: clamp,
     lerp: lerp,

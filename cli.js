@@ -1,10 +1,10 @@
 #!/usr/bin/env node
-var fs, path, http, child_process, usage, parse, types, serve, playwright, open, shot, frames, sheet, WARM, encode, video, writeVtt, cues, bundle, moved, argv, ref$, pos, opt, cmd, src, out, rest, times, p, slice$ = [].slice;
+var fs, path, http, child_process, usage, parse, types, serve, playwright, open, shot, frames, sheet, WARM, encode, video, writeVtt, writeDoc, cues, bundle, moved, argv, ref$, pos, opt, cmd, src, out, rest, times, p, slice$ = [].slice;
 fs = require('fs');
 path = require('path');
 http = require('http');
 child_process = require('child_process');
-usage = 'usage:\n  lotion <frames|sheet|video|cues|captions> <src> <out> [t...] [options]\n  lotion bundle <base-url> <block-name> <out> [options]\n  audio generators ( bgm | sfx | mix | beats ) were removed, see README > Audio\nsee README for options.';
+usage = 'usage:\n  lotion <frames|sheet|video|cues|captions|doc> <src> <out> [t...] [options]\n  lotion bundle <base-url> <block-name> <out> [options]\n  audio generators ( bgm | sfx | mix | beats ) were removed, see README > Audio\nsee README for options.';
 parse = function(argv){
   var ref$, pos, opt, i, a;
   ref$ = [[], {}], pos = ref$[0], opt = ref$[1];
@@ -380,6 +380,31 @@ writeVtt = function(page, out, t0, t1){
     }
   });
 };
+writeDoc = function(src, out, opt){
+  return open(src, opt).then(function(arg$){
+    var page, close;
+    page = arg$.page, close = arg$.close;
+    return page.evaluate(function(){
+      return {
+        doc: window.DOC,
+        chapters: window.CHAPTERS,
+        captions: window.CAPTIONS,
+        duration: window.DURATION,
+        title: document.title,
+        lang: document.documentElement.lang
+      };
+    }).then(function(r){
+      var text;
+      text = r.doc
+        ? r.doc
+        : require('./index').doc.draft(r);
+      fs.writeFileSync(out, text.replace(/\s*$/, '\n'));
+      return console.log(out + " ( " + (r.doc ? 'from the page' : 'drafted from chapters and captions') + " )");
+    }).then(function(){
+      return close();
+    });
+  });
+};
 cues = function(src, out, opt){
   return open(src, opt).then(function(arg$){
     var page, close;
@@ -484,6 +509,8 @@ if ((ref$ = argv[0]) === 'bgm' || ref$ === 'sfx' || ref$ === 'mix' || ref$ === '
       return video(src, out, opt);
     case 'cues':
       return cues(src, out, opt);
+    case 'doc':
+      return writeDoc(src, out, opt);
     case 'captions':
       return open(src, opt).then(function(arg$){
         var page, close;
