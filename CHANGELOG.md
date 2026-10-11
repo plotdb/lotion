@@ -1,4 +1,4 @@
-## master
+## v0.6.0
 
  - document ( experimental ): a work can carry a Markdown document describing it, for search, review, translation and
    agents. `spec/document.md` fixes where it lives ( player option `doc`, an embedded
