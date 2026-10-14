@@ -103,7 +103,9 @@ svg = (tag, attrs = {}, parent) ->
 #   - burnCaptions: ?render 模式 ( 逐格輸出 ) 是否畫上字幕, 預設 false. 網址帶 ?render&captions 亦可.
 #   - doc: 作品的文稿 ( Markdown, 實驗性, 格式見 spec/document.md ). 未給時讀頁面中的
 #     <script type="text/markdown" id="lotion-doc">. 存於 p.doc.
-#   - start: 初始時間. 網址的 ?t=秒數 優先.
+#   - cover: 標題畫面的時間 ( 秒 ). 還沒播放、或暫停在 0 秒時, 舞台顯示這一幅; 播放時間仍是 0 ( 時間軸顯示 0 ),
+#     一播放就從 0 秒畫起. ?render 模式 ( 逐格輸出 ) 不使用.
+#   - start: 初始時間 ( 從中間開始看 ). 網址的 ?t=秒數 優先. 要一打開就看到標題畫面請用 cover, 不要用 start.
 #   - autoplay: 預設 false
 #   - cues: 選用, -> [{t, name, ...}] 給 cli 匯出音效時間點
 #   - loading: start() 之前顯示的載入畫面. 預設 true ( 內建 spinner ); 字串為自訂 html; false 不顯示
@@ -242,7 +244,7 @@ player.prototype = Object.create(Object.prototype) <<<
   seek: (t) ->
     if !@started or @encoding => return
     @t = t = clamp t, 0, @duration
-    @opt.seek t
+    @opt.seek @frame-t(t)
     p = "#{100 * t / @duration}%"
     @el.fill.style.width = p
     @el.knob.style.left = p
@@ -256,6 +258,11 @@ player.prototype = Object.create(Object.prototype) <<<
       @fire \chapter, @chapter
     @update-caption!
     @fire \time, t
+
+  # 時間 t 時舞台要畫的那一幅: 停在 0 秒而且沒在播放時是標題畫面 ( opt.cover ), 其餘就是 t
+  frame-t: (t) ->
+    c = @opt.cover
+    if c? and c > 0 and !@render-mode and !@playing and t < 0.001 => c else t
 
   # 目前時間的字幕 ( 同時有多段時以換行合併 ); 改變時更新畫面並送出 caption 事件
   update-caption: ->

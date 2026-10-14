@@ -58,7 +58,10 @@ player options:
  - `burnCaptions`: draw captions in `?render` mode ( frame export ). default `false`; `?render&captions` also works.
  - `doc`: the work's document, a Markdown string ( see Document ). Without it the player reads
    `<script type="text/markdown" id="lotion-doc">` from the page. Available as `player.doc`.
- - `start`: initial time. `?t=<sec>` in the url takes precedence.
+ - `cover`: time of the title frame ( seconds ). Before playback starts, and whenever the player is paused at 0,
+   the stage shows this frame while the time stays 0 ( the timeline reads 0 ); playing draws from 0 as usual.
+   Not used in `?render` mode. Use this, not `start`, to open on a title screen.
+ - `start`: initial time, for opening mid-way. `?t=<sec>` in the url takes precedence.
  - `autoplay`: default `false`.
  - `cues`: optional function returning sound cues `[{t, ...}]`, exported by `lotion cues`.
  - `loading`: what to show before `start()`. default `true` ( a spinner ); a string is used as custom html;
