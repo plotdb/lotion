@@ -87,6 +87,38 @@ svg = (tag, attrs = {}, parent) ->
   if parent => parent.appendChild e
   e
 
+# ---------- 語系 ----------
+# 作品支援的語言在載入時決定 ( 換語言 = 重新載入 ), 腳本依此挑選文字與素材.
+# 決定順序: 網址 ?lang=xx > 指定的偏好 > langs[0]. 比對寬鬆: zh-TW / zh-Hant 對到 zh, en-US 對到 en.
+# 狀態是頁面層級的: lotion.lang(langs) 決定一次後, lotion.t 與之後建立的 player 都用它.
+lang-state = {lang: null, langs: []}
+# 在 list 中找出 want 對應的項目: 完全相同 ( 不分大小寫 ) 優先, 其次比主標籤 ( zh-Hant -> zh, zh -> zh-TW ). 找不到為 null
+match-lang = (want, list = []) ->
+  if !want => return null
+  w = "#want".toLowerCase!
+  if (r = list.find (l) -> "#l".toLowerCase! == w)? => return r
+  p = w.split(/[-_]/).0
+  list.find((l) -> "#l".toLowerCase!split(/[-_]/).0 == p) ? null
+url-lang = ->
+  if typeof(location) == \undefined => return null
+  m = /[?&]lang=([^&#]*)/.exec location.search
+  if m => decodeURIComponent m.1 else null
+# decide-lang ( lotion.lang ) (langs, prefer): 宣告作品支援的語言並決定目前語系, 回傳之. 不帶參數時回傳目前語系 ( 未宣告為 null )
+# 模組內的 t / lang 常是區域變數名稱 ( LiveScript 的 = 會改到外層 ), 所以內部用別名, 匯出時才叫 lang / t
+decide-lang = (langs, prefer) ->
+  if langs? and langs.length
+    lang-state.langs = langs.slice!
+    lang-state.lang = match-lang(url-lang!, langs) ? match-lang(prefer, langs) ? langs.0
+  lang-state.lang
+# pick ( lotion.t ) ({zh: ..., en: ...}): 目前語系的值, 缺的時候退回預設語言 ( langs[0] ), 再缺則取第一個. 值不限字串.
+# 不是物件 ( 字串、數字、陣列 ) 時原樣回傳. 未宣告語系時取網址 ?lang 對到的鍵, 否則第一個.
+pick = (v) ->
+  if !v or typeof(v) != \object or Array.isArray(v) => return v
+  keys = Object.keys v
+  {lang: cur, langs} = lang-state
+  k = if cur? => (match-lang(cur, keys) ? match-lang(langs.0, keys)) else match-lang(url-lang!, keys)
+  v[k ? keys.0]
+
 # ---------- 播放器 ----------
 # 把 seek(t) 包成可播放 / 拖曳 / 全螢幕的元件, 並提供逐格輸出用的 render 協定.
 #  opt:
@@ -99,10 +131,13 @@ svg = (tag, attrs = {}, parent) ->
 #   - captions: 字幕 [[t0, t1, text, meta?], ...] ( meta 如 {speaker} ), 或多語言 {zh: [...], en: [...]}.
 #     也可用 lotion.vtt.parse 讀入 WebVTT. 讀者可自由開關 ( 控制列的 CC 鈕、c 鍵、p.showCaptions(on) ).
 #   - captionsBurned: 畫面上已有旁白文字時設為 true: 字幕預設關閉 ( 讀者仍可打開 ). 未設定時預設開啟.
-#   - captionLang: 初始語言, 預設為第一個.
+#   - captionLang: 初始語言, 預設為目前語系 ( 有宣告 langs 時 ), 否則第一個.
+#   - langs: 作品支援的語言, 如 ['zh', 'en'], 第一個是預設. lang: 偏好的語言. 決定順序見 lotion.lang;
+#     腳本先呼叫過 lotion.lang(langs) 時可省略. 結果存於 p.lang / p.langs. 未宣告時 p.lang 為 null, 行為不變.
 #   - burnCaptions: ?render 模式 ( 逐格輸出 ) 是否畫上字幕, 預設 false. 網址帶 ?render&captions 亦可.
-#   - doc: 作品的文稿 ( Markdown, 實驗性, 格式見 spec/document.md ). 未給時讀頁面中的
-#     <script type="text/markdown" id="lotion-doc">. 存於 p.doc.
+#   - doc: 作品的文稿 ( Markdown, 實驗性, 格式見 spec/document.md ), 或各語系一份 {zh: '…', en: '…'}.
+#     未給時讀頁面中的 <script type="text/markdown" id="lotion-doc"> 與 class="lotion-doc" 的 script,
+#     以其 lang 屬性為語系. p.docs 為全部 {lang: md} ( 無語系的鍵為 '' ), p.doc 為目前語系那份.
 #   - cover: 標題畫面的時間 ( 秒 ). 還沒播放、或暫停在 0 秒時, 舞台顯示這一幅; 播放時間仍是 0 ( 時間軸顯示 0 ),
 #     一播放就從 0 秒畫起. ?render 模式 ( 逐格輸出 ) 不使用.
 #   - start: 初始時間 ( 從中間開始看 ). 網址的 ?t=秒數 優先. 要一打開就看到標題畫面請用 cover, 不要用 start.
@@ -138,8 +173,12 @@ player = (opt = {}) ->
   tracks = if !c => {} else if Array.isArray(c) => {'': c} else c
   @caption-tracks = {}
   for k, v of tracks => @caption-tracks[k] = v.slice!sort (a, b) -> a.0 - b.0
+  # 語系: 選項有 langs 時在此決定; 否則沿用腳本先前以 lotion.lang(langs) 決定的. 都沒有時 lang 為 null
+  @lang = if opt.langs and opt.langs.length => decide-lang(opt.langs, opt.lang) else lang-state.lang
+  @langs = if @lang? => lang-state.langs.slice! else []
   @caption-langs = Object.keys @caption-tracks
-  @caption-lang = if opt.captionLang in @caption-langs => opt.captionLang else (@caption-langs.0 ? null)
+  @caption-lang = if opt.captionLang in @caption-langs => opt.captionLang
+  else (match-lang(@lang, @caption-langs) ? @caption-langs.0 ? null)
   @captions-on = if @render-mode => !!(opt.burnCaptions or /[?&]captions\b/.test location.search) else !opt.captionsBurned
   @init!
   @
@@ -150,6 +189,8 @@ player.prototype = Object.create(Object.prototype) <<<
   init: ->
     r = @root
     r.classList.add \lotion
+    # 宣告語系時標上 lang, 讓字型選擇、斷行與輔助工具依語言處理
+    if @lang? => r.setAttribute \lang, @lang
     if !r.hasAttribute(\tabindex) => r.setAttribute \tabindex, 0
     @viewport = mk \lotion-viewport, '', r
     @stage = mk \lotion-stage, '', @viewport
@@ -187,8 +228,11 @@ player.prototype = Object.create(Object.prototype) <<<
   # 內容建好後呼叫: 移除載入畫面、顯示初始畫面, 並依設定自動播放
   start: ->
     @started = true
-    # 文稿: 選項優先, 其次是頁面中的 #lotion-doc ( start 時才讀, 頁面已解析完 )
-    @doc = @opt.doc or document.getElementById('lotion-doc')?textContent?trim! or null
+    # 文稿: 選項優先, 其次是頁面中的 #lotion-doc / .lotion-doc ( start 時才讀, 頁面已解析完 )
+    @docs = @read-docs!
+    keys = Object.keys @docs
+    k = match-lang(@lang, keys) ? match-lang(@langs.0, keys) ? keys.0
+    @doc = if k? => @docs[k] else null
     @root.classList.remove \lotion-loading
     if @loading => @loading.remove!
     if @render-mode
@@ -199,12 +243,24 @@ player.prototype = Object.create(Object.prototype) <<<
       if @caption-langs.length => window.CAPTIONS = @caption-tracks
       # cli 依此輸出文稿 ( lotion doc ); 沒有文稿時以章節與字幕起草
       if @doc => window.DOC = @doc
+      if Object.keys(@docs).length > 1 => window.DOCS = @docs
+      if @lang? => window.LANG = @lang; window.LANGS = @langs
       if @chapters.length => window.CHAPTERS = @chapters
     @ready-res @
     m = /[?&]t=([\d.]+)/.exec location.search
     @seek(if m => +m.1 else if @render-mode => 0 else (@opt.start or 0))
     if @opt.autoplay and !@render-mode => document.fonts.ready.then ~> @play true
     @
+
+  # 所有語系的文稿 {lang: md}; 沒有語系標示的那份鍵為 ''
+  read-docs: ->
+    d = @opt.doc
+    if d and typeof(d) == \object => return {} <<< d
+    if d => return {'': d}
+    ret = {}
+    for e in document.querySelectorAll('script#lotion-doc, script.lotion-doc')
+      if (v = e.textContent?trim!) and !((k = e.getAttribute(\lang) or '') of ret) => ret[k] = v
+    ret
 
   bind: ->
     @el.play.addEventListener \click, (e) ~> e.stopPropagation!; @toggle!
@@ -474,7 +530,7 @@ doc =
   draft: (opt = {}) ->
     c = opt.captions
     tracks = if !c => {} else if Array.isArray(c) => {'': c} else c
-    lang = if opt.lang and tracks[opt.lang] => opt.lang else Object.keys(tracks).0
+    lang = match-lang(opt.lang, Object.keys tracks) ? Object.keys(tracks).0
     caps = (if lang? => tracks[lang] else []).slice!sort (a, b) -> a.0 - b.0
     dur = opt.duration
     num = (v) -> +(+v).toFixed(2)
@@ -498,7 +554,7 @@ doc =
     out.join('\n')
 
 lotion = {
-  doc, vtt, clamp, lerp, ss, spring, presets, track, vis, bump, typing
+  doc, vtt, lang: decide-lang, t: pick, clamp, lerp, ss, spring, presets, track, vis, bump, typing
   hex, mixc, rgb, mk, put, txt, svg, player, encode, libs, lib
 }
 

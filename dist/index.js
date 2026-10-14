@@ -1,5 +1,5 @@
 (function(){
-  var PI, sin, cos, exp, sqrt, round, clamp, lerp, ss, spring, presets, track, vis, bump, typing, hex, mixc, rgb, mk, put, txt, NS, svg, player, ref$, libs, libCache, lib, encode, vttTime, vttParseTime, vtt, doc, lotion;
+  var PI, sin, cos, exp, sqrt, round, clamp, lerp, ss, spring, presets, track, vis, bump, typing, hex, mixc, rgb, mk, put, txt, NS, svg, langState, matchLang, urlLang, decideLang, pick, player, ref$, libs, libCache, lib, encode, vttTime, vttParseTime, vtt, doc, lotion;
   PI = Math.PI, sin = Math.sin, cos = Math.cos, exp = Math.exp, sqrt = Math.sqrt, round = Math.round;
   clamp = function(v, a, b){
     a == null && (a = 0);
@@ -178,6 +178,67 @@
     }
     return e;
   };
+  langState = {
+    lang: null,
+    langs: []
+  };
+  matchLang = function(want, list){
+    var w, r, p, ref$;
+    list == null && (list = []);
+    if (!want) {
+      return null;
+    }
+    w = (want + "").toLowerCase();
+    if ((r = list.find(function(l){
+      return (l + "").toLowerCase() === w;
+    })) != null) {
+      return r;
+    }
+    p = w.split(/[-_]/)[0];
+    return (ref$ = list.find(function(l){
+      return (l + "").toLowerCase().split(/[-_]/)[0] === p;
+    })) != null ? ref$ : null;
+  };
+  urlLang = function(){
+    var m;
+    if (typeof location === 'undefined') {
+      return null;
+    }
+    m = /[?&]lang=([^&#]*)/.exec(location.search);
+    if (m) {
+      return decodeURIComponent(m[1]);
+    } else {
+      return null;
+    }
+  };
+  decideLang = function(langs, prefer){
+    var ref$;
+    if (langs != null && langs.length) {
+      langState.langs = langs.slice();
+      langState.lang = (ref$ = matchLang(urlLang(), langs)) != null
+        ? ref$
+        : (ref$ = matchLang(prefer, langs)) != null
+          ? ref$
+          : langs[0];
+    }
+    return langState.lang;
+  };
+  pick = function(v){
+    var keys, cur, langs, k, ref$;
+    if (!v || typeof v !== 'object' || Array.isArray(v)) {
+      return v;
+    }
+    keys = Object.keys(v);
+    cur = langState.lang, langs = langState.langs;
+    k = cur != null
+      ? (ref$ = matchLang(cur, keys)) != null
+        ? ref$
+        : matchLang(langs[0], keys)
+      : matchLang(urlLang(), keys);
+    return v[k != null
+      ? k
+      : keys[0]];
+  };
   player = function(opt){
     var c, tracks, k, v, ref$, this$ = this;
     opt == null && (opt = {});
@@ -211,10 +272,18 @@
       v = tracks[k];
       this.captionTracks[k] = v.slice().sort(fn$);
     }
+    this.lang = opt.langs && opt.langs.length
+      ? decideLang(opt.langs, opt.lang)
+      : langState.lang;
+    this.langs = this.lang != null
+      ? langState.langs.slice()
+      : [];
     this.captionLangs = Object.keys(this.captionTracks);
     this.captionLang = in$(opt.captionLang, this.captionLangs)
       ? opt.captionLang
-      : (ref$ = this.captionLangs[0]) != null ? ref$ : null;
+      : (ref$ = matchLang(this.lang, this.captionLangs)) != null
+        ? ref$
+        : (ref$ = this.captionLangs[0]) != null ? ref$ : null;
     this.captionsOn = this.renderMode
       ? !!(opt.burnCaptions || /[?&]captions\b/.test(location.search))
       : !opt.captionsBurned;
@@ -228,6 +297,9 @@
     var r, ref$, html, q, this$ = this;
     r = this.root;
     r.classList.add('lotion');
+    if (this.lang != null) {
+      r.setAttribute('lang', this.lang);
+    }
     if (!r.hasAttribute('tabindex')) {
       r.setAttribute('tabindex', 0);
     }
@@ -283,9 +355,16 @@
       });
     }
   }, ref$.start = function(){
-    var ref$, ref1$, m, this$ = this;
+    var keys, k, ref$, m, this$ = this;
     this.started = true;
-    this.doc = this.opt.doc || ((ref$ = document.getElementById('lotion-doc')) != null ? (ref1$ = ref$.textContent) != null ? ref1$.trim() : void 8 : void 8) || null;
+    this.docs = this.readDocs();
+    keys = Object.keys(this.docs);
+    k = (ref$ = matchLang(this.lang, keys)) != null
+      ? ref$
+      : (ref$ = matchLang(this.langs[0], keys)) != null
+        ? ref$
+        : keys[0];
+    this.doc = k != null ? this.docs[k] : null;
     this.root.classList.remove('lotion-loading');
     if (this.loading) {
       this.loading.remove();
@@ -304,6 +383,13 @@
       if (this.doc) {
         window.DOC = this.doc;
       }
+      if (Object.keys(this.docs).length > 1) {
+        window.DOCS = this.docs;
+      }
+      if (this.lang != null) {
+        window.LANG = this.lang;
+        window.LANGS = this.langs;
+      }
       if (this.chapters.length) {
         window.CHAPTERS = this.chapters;
       }
@@ -321,6 +407,25 @@
       });
     }
     return this;
+  }, ref$.readDocs = function(){
+    var d, ret, i$, ref$, len$, e, v, ref1$, k;
+    d = this.opt.doc;
+    if (d && typeof d === 'object') {
+      return import$({}, d);
+    }
+    if (d) {
+      return {
+        '': d
+      };
+    }
+    ret = {};
+    for (i$ = 0, len$ = (ref$ = document.querySelectorAll('script#lotion-doc, script.lotion-doc')).length; i$ < len$; ++i$) {
+      e = ref$[i$];
+      if ((v = (ref1$ = e.textContent) != null ? ref1$.trim() : void 8) && !((k = e.getAttribute('lang') || '') in ret)) {
+        ret[k] = v;
+      }
+    }
+    return ret;
   }, ref$.bind = function(){
     var dragging, fromEvent, this$ = this;
     this.el.play.addEventListener('click', function(e){
@@ -808,7 +913,7 @@
   };
   doc = {
     draft: function(opt){
-      var c, tracks, lang, caps, dur, num, q, fm, chs, parts, out, i$, len$, p, range, says, j$, len1$;
+      var c, tracks, lang, ref$, caps, dur, num, q, fm, chs, parts, out, i$, len$, p, range, says, j$, len1$;
       opt == null && (opt = {});
       c = opt.captions;
       tracks = !c
@@ -816,8 +921,8 @@
         : Array.isArray(c) ? {
           '': c
         } : c;
-      lang = opt.lang && tracks[opt.lang]
-        ? opt.lang
+      lang = (ref$ = matchLang(opt.lang, Object.keys(tracks))) != null
+        ? ref$
         : Object.keys(tracks)[0];
       caps = (lang != null
         ? tracks[lang]
@@ -888,6 +993,8 @@
   lotion = {
     doc: doc,
     vtt: vtt,
+    lang: decideLang,
+    t: pick,
     clamp: clamp,
     lerp: lerp,
     ss: ss,

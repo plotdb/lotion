@@ -29,6 +29,26 @@
    以 block 封裝時，interface 要帶上 `ready: player.ready`，render 協定才會等它就緒。
 
 
+## 多語作品
+
+語系在頁面載入時決定 ( 網址 `?lang=xx`，換語言就是重新載入 )，腳本只要知道目前語系，自己挑文字與素材。
+
+ - 一開始先宣告支援的語言，第一個是預設：`lotion.lang(['zh', 'en'])`，回傳目前語系。
+   它不需要 player，建 DOM 文字之前就要先呼叫。`zh-TW`、`zh-Hant` 會對到 `zh`，`en-US` 對到 `en`，
+   對不到就用預設。
+ - 所有依語言而不同的東西都寫成 `{zh: …, en: …}`，用 `lotion.t(…)` 取出目前語系的值；缺的語言退回預設。
+   值不限字串，素材路徑、數字、陣列都可以：
+   - 舞台上所有看得到的文字 ( 標題、標籤、數字的單位、圖例 )。
+   - 章節名稱：`chapters: [[0, lotion.t({zh: '開場', en: 'Intro'})], …]`。
+   - 配音與其他依語言而不同的素材：`lotion.t({zh: 'assets/vo-1.zh.mp3', en: 'assets/vo-1.en.mp3'})`。
+ - 字幕直接給各語言：`captions: {zh: […], en: […]}`，播放器會從目前語系開始。
+ - 文稿每個語言一份完整的文稿，各自的 `lang` 欄位寫該語言：player 選項 `doc: {zh: …, en: …}`，
+   或頁面中每個語言一個 `<script type="text/markdown" class="lotion-doc" lang="en">`。
+ - 不同語言的文字長度差很多 ( 英文常比中文長一倍 )：版面要容得下最長的那個，或依語言調整字級；
+   配音長度不同時，時間軸也要依語言調整 ( 時間點同樣可以用 `lotion.t` 取 )。
+ - 每個語言都要用 `lotion sheet <src> <out.png> <t…> --lang all` 檢查，輸出成 `out.zh.png`、`out.en.png`。
+
+
 ## 可攜的封裝
 
  - 要放進其它網站時，把動畫包成 `@plotdb/block`：依賴 ( 包含 lotion ) 以 `pkg.dependencies` 宣告，

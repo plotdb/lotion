@@ -1,6 +1,7 @@
 # lotion cli: 以 playwright 開啟動畫頁面, 依 render 協定逐格截圖.
 #  render 協定: 頁面帶 ?render 時須提供 window.seek(t) 與 window.DURATION; 選用 window.cues() 與
-#  window.CAPTIONS ( 字幕 {lang: [[t0, t1, text, meta?], ...]} ).
+#  window.CAPTIONS ( 字幕 {lang: [[t0, t1, text, meta?], ...]} ), window.DOC ( 文稿 ),
+#  window.LANG / window.LANGS ( 目前語系與作品支援的語言, 網址 ?lang=xx 決定 ).
 #  lotion.player 會自動提供; 其它頁面自行設定這兩個值即可.
 #
 #  lotion frames <src> <outdir> <t...>      指定時間點各輸出一張 png
@@ -21,13 +22,15 @@
 #   --crf 16                     x264 品質
 #   --cols 3 --tile 640          contact sheet 的欄數與每格寬度
 #   --query a=1&b                附加到網址的參數
+#   --lang xx                    以該語系輸出 ( 網址帶 ?lang=xx ). video / captions 只輸出該語系的字幕.
+#                                all: 每個語系 ( window.LANGS ) 各輸出一份, 檔名加上語系, 如 out.en.mp4
 #   --block-root /block --lib-root /assets/lib   bundle 時的 registry 位置 ( 相對於 base-url )
 
 require! <[fs path http child_process]>
 
 usage = '''
   usage:
-    lotion <frames|sheet|video|cues|captions|doc> <src> <out> [t...] [options]
+    lotion <frames|sheet|video|cues|captions|doc> <src> <out> [t...] [options] [--lang <xx|all>]
     lotion bundle <base-url> <block-name> <out> [options]
     audio generators ( bgm | sfx | mix | beats ) were removed, see README > Audio
   see README for options.
@@ -82,6 +85,7 @@ open = (src, opt) ->
   p.then (srv) ->
     [u, h] = srv.url.split '#'
     u += (if /\?/.test(u) => '&' else '?') + 'render' + (if opt.query => "&#{opt.query}" else '')
+    if opt.lang => u += "&lang=#{encodeURIComponent opt.lang}"
     chromium.launch!then (browser) ->
       browser.newPage({viewport: {width: +(opt.width or 1920), height: +(opt.height or 1080)}, deviceScaleFactor: 1})
         .then (page) ->
@@ -160,7 +164,7 @@ video = (src, out, opt) ->
     tick = -> if ++done % 300 == 0 => console.log "frame #done/#n #{((Date.now! - t0) / 1000).toFixed(0)}s"
     console.log "frame 0/#n 0s" + (if workers > 1 => " ( #workers workers )" else '')
     finish = -> console.log "#out ( #n frames, #{((Date.now! - t0) / 1000).toFixed(0)}s )"
-    vtt = write-vtt first.page, out, o.from, +(opt.to or first.duration)
+    vtt = write-vtt first.page, out, o.from, +(opt.to or first.duration), opt.lang
     if workers == 1 => return vtt.then(-> encode first.page, 0, n, out, o, tick).then(-> first.close!).then finish
     k = Math.min workers, n
     tmp = fs.mkdtempSync path.join(require(\os).tmpdir!, 'lotion-')
@@ -181,11 +185,14 @@ video = (src, out, opt) ->
       .then finish
 
 # 字幕寫成 WebVTT: 只取 [from, to) 範圍內的段落, 時間改為相對 from. 多語言時每個語言一個檔
-write-vtt = (page, out, t0, t1) ->
+# 指定 one ( --lang ) 時只輸出頁面目前語系 ( window.LANG ) 對應的那一軌, 寫成單一檔案
+write-vtt = (page, out, t0, t1, one) ->
   {vtt} = require './index'
-  page.evaluate(-> window.CAPTIONS or null).then (tracks) ->
+  page.evaluate(-> {tracks: window.CAPTIONS or null, lang: window.LANG or null}).then ({tracks, lang: cur}) ->
     if !tracks => return
     langs = Object.keys tracks
+    if one
+      langs = [match-lang(cur or one, langs) ? langs.0]
     base = out.replace /\.(vtt|mp4|webm|mov)$/i, ''
     for lang in langs
       list = tracks[lang].filter((c) -> c.1 > t0 and c.0 < t1).map (c) ->
@@ -197,12 +204,30 @@ write-vtt = (page, out, t0, t1) ->
 # 文稿: 頁面有就原樣輸出, 否則以章節、字幕與頁面標題起草
 write-doc = (src, out, opt) ->
   open(src, opt).then ({page, close}) ->
-    page.evaluate(-> {doc: window.DOC, chapters: window.CHAPTERS, captions: window.CAPTIONS, duration: window.DURATION, title: document.title, lang: document.documentElement.lang})
+    page.evaluate(-> {doc: window.DOC, chapters: window.CHAPTERS, captions: window.CAPTIONS, duration: window.DURATION, title: document.title, lang: window.LANG or document.documentElement.lang})
       .then (r) ->
         text = if r.doc => r.doc else require('./index').doc.draft(r)
         fs.write-file-sync out, text.replace(/\s*$/, '\n')
         console.log "#out ( #{if r.doc => 'from the page' else 'drafted from chapters and captions'} )"
       .then -> close!
+
+# 寬鬆比對語系 ( 同 lotion 的 match-lang ): 完全相同優先, 其次比主標籤
+match-lang = (want, list) ->
+  w = "#want".toLowerCase!
+  list.find((l) -> "#l".toLowerCase! == w) ? list.find((l) -> "#l".toLowerCase!split(/[-_]/).0 == w.split(/[-_]/).0)
+
+# --lang all: 先讀頁面的 window.LANGS, 再逐一以 --lang <xx> 執行, 輸出檔名加上語系 ( out.mp4 -> out.en.mp4 )
+for-each-lang = (src, out, opt, run) ->
+  open(src, ({} <<< opt <<< {lang: null})).then ({page, close}) ->
+    page.evaluate(-> window.LANGS or []).then (langs) -> close!then -> langs
+  .then (langs) ->
+    if !langs.length
+      console.error "lotion: the page declares no languages ( window.LANGS ); rendering once"
+      return run out, opt
+    with-lang = (lang) ->
+      ext = path.extname out
+      if ext => out.slice(0, -ext.length) + ".#lang#ext" else path.join(out, lang)
+    langs.reduce ((p, lang) -> p.then -> run with-lang(lang), ({} <<< opt <<< {lang})), Promise.resolve!
 
 cues = (src, out, opt) ->
   open(src, opt).then ({page, close}) ->
@@ -251,14 +276,18 @@ else
   {pos, opt} = parse argv
   [cmd, src, out, ...rest] = pos
   times = rest.map(-> +it)
-  p = switch cmd
+  run = (out, opt) -> switch cmd
   | \frames => frames src, out, times, opt
   | \sheet => sheet src, out, times, opt
   | \video => video src, out, opt
   | \cues => cues src, out, opt
   | \doc => write-doc src, out, opt
-  | \captions => (open(src, opt).then ({page, close}) -> write-vtt(page, out, 0, Infinity).then -> close!)
+  | \captions => (open(src, opt).then ({page, close}) -> write-vtt(page, out, 0, Infinity, opt.lang).then -> close!)
   | \bundle => (if rest.0 => bundle(src, out, rest.0, opt) else null)
   | otherwise => null
-  if !p or !src or !out => console.log usage; process.exit 1
+  known = cmd in <[frames sheet video cues doc captions bundle]>
+  p = if !known or !src or !out => null
+  else if opt.lang == \all and cmd != \bundle => for-each-lang src, out, opt, run
+  else run out, opt
+  if !p => console.log usage; process.exit 1
   p.catch (e) -> console.error e.message or e; process.exit 1

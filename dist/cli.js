@@ -1,10 +1,10 @@
 #!/usr/bin/env node
-var fs, path, http, child_process, usage, parse, types, serve, playwright, open, shot, frames, sheet, WARM, encode, video, writeVtt, writeDoc, cues, bundle, moved, argv, ref$, pos, opt, cmd, src, out, rest, times, p, slice$ = [].slice;
+var fs, path, http, child_process, usage, parse, types, serve, playwright, open, shot, frames, sheet, WARM, encode, video, writeVtt, writeDoc, matchLang, forEachLang, cues, bundle, moved, argv, ref$, pos, opt, cmd, src, out, rest, times, run, known, p, slice$ = [].slice;
 fs = require('fs');
 path = require('path');
 http = require('http');
 child_process = require('child_process');
-usage = 'usage:\n  lotion <frames|sheet|video|cues|captions|doc> <src> <out> [t...] [options]\n  lotion bundle <base-url> <block-name> <out> [options]\n  audio generators ( bgm | sfx | mix | beats ) were removed, see README > Audio\nsee README for options.';
+usage = 'usage:\n  lotion <frames|sheet|video|cues|captions|doc> <src> <out> [t...] [options] [--lang <xx|all>]\n  lotion bundle <base-url> <block-name> <out> [options]\n  audio generators ( bgm | sfx | mix | beats ) were removed, see README > Audio\nsee README for options.';
 parse = function(argv){
   var ref$, pos, opt, i, a;
   ref$ = [[], {}], pos = ref$[0], opt = ref$[1];
@@ -101,6 +101,9 @@ open = function(src, opt){
     var ref$, u, h;
     ref$ = srv.url.split('#'), u = ref$[0], h = ref$[1];
     u += (/\?/.test(u) ? '&' : '?') + 'render' + (opt.query ? "&" + opt.query : '');
+    if (opt.lang) {
+      u += "&lang=" + encodeURIComponent(opt.lang);
+    }
     return chromium.launch().then(function(browser){
       return browser.newPage({
         viewport: {
@@ -282,7 +285,7 @@ video = function(src, out, opt){
     finish = function(){
       return console.log(out + " ( " + n + " frames, " + ((Date.now() - t0) / 1000).toFixed(0) + "s )");
     };
-    vtt = writeVtt(first.page, out, o.from, +(opt.to || first.duration));
+    vtt = writeVtt(first.page, out, o.from, +(opt.to || first.duration), opt.lang);
     if (workers === 1) {
       return vtt.then(function(){
         return encode(first.page, 0, n, out, o, tick);
@@ -350,17 +353,26 @@ video = function(src, out, opt){
     }).then(finish);
   });
 };
-writeVtt = function(page, out, t0, t1){
+writeVtt = function(page, out, t0, t1, one){
   var vtt;
   vtt = require('./index').vtt;
   return page.evaluate(function(){
-    return window.CAPTIONS || null;
-  }).then(function(tracks){
-    var langs, base, i$, len$, lang, list, f, results$ = [];
+    return {
+      tracks: window.CAPTIONS || null,
+      lang: window.LANG || null
+    };
+  }).then(function(arg$){
+    var tracks, cur, langs, ref$, base, i$, len$, lang, list, f, results$ = [];
+    tracks = arg$.tracks, cur = arg$.lang;
     if (!tracks) {
       return;
     }
     langs = Object.keys(tracks);
+    if (one) {
+      langs = [(ref$ = matchLang(cur || one, langs)) != null
+        ? ref$
+        : langs[0]];
+    }
     base = out.replace(/\.(vtt|mp4|webm|mov)$/i, '');
     for (i$ = 0, len$ = langs.length; i$ < len$; ++i$) {
       lang = langs[i$];
@@ -391,7 +403,7 @@ writeDoc = function(src, out, opt){
         captions: window.CAPTIONS,
         duration: window.DURATION,
         title: document.title,
-        lang: document.documentElement.lang
+        lang: window.LANG || document.documentElement.lang
       };
     }).then(function(r){
       var text;
@@ -403,6 +415,52 @@ writeDoc = function(src, out, opt){
     }).then(function(){
       return close();
     });
+  });
+};
+matchLang = function(want, list){
+  var w, ref$;
+  w = (want + "").toLowerCase();
+  return (ref$ = list.find(function(l){
+    return (l + "").toLowerCase() === w;
+  })) != null
+    ? ref$
+    : list.find(function(l){
+      return (l + "").toLowerCase().split(/[-_]/)[0] === w.split(/[-_]/)[0];
+    });
+};
+forEachLang = function(src, out, opt, run){
+  var ref$;
+  return open(src, (ref$ = import$({}, opt), ref$.lang = null, ref$)).then(function(arg$){
+    var page, close;
+    page = arg$.page, close = arg$.close;
+    return page.evaluate(function(){
+      return window.LANGS || [];
+    }).then(function(langs){
+      return close().then(function(){
+        return langs;
+      });
+    });
+  }).then(function(langs){
+    var withLang;
+    if (!langs.length) {
+      console.error("lotion: the page declares no languages ( window.LANGS ); rendering once");
+      return run(out, opt);
+    }
+    withLang = function(lang){
+      var ext;
+      ext = path.extname(out);
+      if (ext) {
+        return out.slice(0, -ext.length) + ("." + lang + ext);
+      } else {
+        return path.join(out, lang);
+      }
+    };
+    return langs.reduce(function(p, lang){
+      return p.then(function(){
+        var ref$;
+        return run(withLang(lang), (ref$ = import$({}, opt), ref$.lang = lang, ref$));
+      });
+    }, Promise.resolve());
   });
 };
 cues = function(src, out, opt){
@@ -499,7 +557,7 @@ if ((ref$ = argv[0]) === 'bgm' || ref$ === 'sfx' || ref$ === 'mix' || ref$ === '
   times = rest.map(function(it){
     return +it;
   });
-  p = (function(){
+  run = function(out, opt){
     switch (cmd) {
     case 'frames':
       return frames(src, out, times, opt);
@@ -515,7 +573,7 @@ if ((ref$ = argv[0]) === 'bgm' || ref$ === 'sfx' || ref$ === 'mix' || ref$ === '
       return open(src, opt).then(function(arg$){
         var page, close;
         page = arg$.page, close = arg$.close;
-        return writeVtt(page, out, 0, Infinity).then(function(){
+        return writeVtt(page, out, 0, Infinity, opt.lang).then(function(){
           return close();
         });
       });
@@ -528,8 +586,14 @@ if ((ref$ = argv[0]) === 'bgm' || ref$ === 'sfx' || ref$ === 'mix' || ref$ === '
     default:
       return null;
     }
-  }());
-  if (!p || !src || !out) {
+  };
+  known = cmd === 'frames' || cmd === 'sheet' || cmd === 'video' || cmd === 'cues' || cmd === 'doc' || cmd === 'captions' || cmd === 'bundle';
+  p = !known || !src || !out
+    ? null
+    : opt.lang === 'all' && cmd !== 'bundle'
+      ? forEachLang(src, out, opt, run)
+      : run(out, opt);
+  if (!p) {
     console.log(usage);
     process.exit(1);
   }
@@ -537,4 +601,9 @@ if ((ref$ = argv[0]) === 'bgm' || ref$ === 'sfx' || ref$ === 'mix' || ref$ === '
     console.error(e.message) || e;
     return process.exit(1);
   });
+}
+function import$(obj, src){
+  var own = {}.hasOwnProperty;
+  for (var key in src) if (own.call(src, key)) obj[key] = src[key];
+  return obj;
 }

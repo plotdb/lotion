@@ -8,7 +8,7 @@
 #   - data-lib-root: 依賴函式庫的位置, 預設 `/assets/lib` -> <root>/<name>/<version>/<path>
 #   - data-manual: 有此屬性時不自動掛載, 改由 lotionBlock.mount(el) 手動掛載
 #  掛載的 block 若在 interface 提供 seek(t) 與 duration, 網址帶 ?render 時會設定 window.seek / window.DURATION,
-#  如此即可用 lotion cli 逐格輸出. interface 可另提供 ready ( promise, 如 player.ready ): 等它完成才設定,
+#  如此即可用 lotion cli 逐格輸出. interface 有 lang / langs 時也設定 window.LANG / window.LANGS. interface 可另提供 ready ( promise, 如 player.ready ): 等它完成才設定,
 #  cli 以 window.seek 是否存在判斷頁面就緒.
 do ->
   script = document.currentScript
@@ -30,6 +30,7 @@ do ->
           window.seek = (t) -> itf.seek t
           window.DURATION = itf.duration
           if itf.cues => window.cues = itf.cues
+          if itf.lang? => window.LANG = itf.lang; window.LANGS = itf.langs or [itf.lang]
           itf
   start = ->
     if ds.manual? => return Promise.resolve []

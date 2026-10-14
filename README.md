@@ -54,10 +54,14 @@ player options:
    for several languages. See Captions.
  - `captionsBurned`: `true` when the scene already shows the narration as text: captions start off. default
    `false` ( captions start on ). Readers can always turn them on or off.
- - `captionLang`: initial caption language. default the first one.
+ - `captionLang`: initial caption language. default the current language ( see Languages ), else the first one.
  - `burnCaptions`: draw captions in `?render` mode ( frame export ). default `false`; `?render&captions` also works.
- - `doc`: the work's document, a Markdown string ( see Document ). Without it the player reads
-   `<script type="text/markdown" id="lotion-doc">` from the page. Available as `player.doc`.
+ - `doc`: the work's document, a Markdown string ( see Document ), or one per language `{zh: '…', en: '…'}`.
+   Without it the player reads `<script type="text/markdown" id="lotion-doc">` and
+   `<script type="text/markdown" class="lotion-doc" lang="en">` from the page. Available as `player.doc`
+   ( the current language's ) and `player.docs` ( all, `{lang: markdown}` ).
+ - `langs`: languages the work supports, such as `['zh', 'en']`; the first is the default. `lang`: the preferred
+   one. See Languages. Can be left out when the script already called `lotion.lang(langs)`.
  - `cover`: time of the title frame ( seconds ). Before playback starts, and whenever the player is paused at 0,
    the stage shows this frame while the time stays 0 ( the timeline reads 0 ); playing draws from 0 as usual.
    Not used in `?render` mode. Use this, not `start`, to open on a title screen.
@@ -72,7 +76,8 @@ player methods: `start()`, `seek(t)`, `play(go = true)`, `pause()`, `toggle()`, 
 `player.ready` is a promise resolved by `start()`.
 
 player state: `t`, `playing`, `chapter` ( `{index, t, name, meta}` or `null` ), `caption`
-( `{t0, t1, text, meta, lang}` or `null` ), `captionsOn`, `captionLang`, `captionLangs`.
+( `{t0, t1, text, meta, lang}` or `null` ), `captionsOn`, `captionLang`, `captionLangs`, `lang` and `langs`
+( `null` and `[]` when the work declares no languages ), `doc`, `docs`.
 
 events ( `player.on(name, cb)` ):
 
@@ -107,6 +112,38 @@ Guidelines for splitting ( common subtitle practice ): Traditional Chinese up to
 Keep each caption on screen 0.83 - 7 s, with at least 2 frames between captions. Break at punctuation or pauses,
 not inside a phrase; merge captions that are too short. With word timings from a speech generator, cut at sentence
 ends and at pauses longer than about 0.3 s, then split or merge by those limits.
+
+### Languages
+
+A work can come in several languages. The language is decided once, when the page loads; switching means reloading
+with another `?lang=`. So the script only needs to know the current language to pick its text and assets:
+
+    lang = lotion.lang ['zh', 'en']          # the current language, before anything is built
+    p = new lotion.player do
+      root: '#demo'
+      duration: 40
+      chapters: [[0, lotion.t({zh: '開場', en: 'Intro'})]]
+      captions: {zh: [...], en: [...]}
+      doc: {zh: docZh, en: docEn}             # or one <script class="lotion-doc" lang="…"> per language
+      seek: (t) -> seek t
+    title = lotion.mk 'title', lotion.t({zh: '焚風', en: 'Foehn'}), p.stage
+    voice = lotion.t {zh: 'assets/voice-zh.mp3', en: 'assets/voice-en.mp3'}
+
+ - `lotion.lang(langs, prefer)`: declares the languages the work supports ( the first is the default ) and returns
+   the current one: `?lang=xx` in the url, else `prefer`, else `langs[0]`. Matching is loose: `zh-TW` and
+   `zh-Hant` match `zh`, `en-US` matches `en`; anything else falls back to the default. Without arguments it returns
+   the current language ( `null` if none was declared ). It needs no player, so text can be chosen before one
+   exists; a player created later uses it. The player options `langs` / `lang` do the same.
+ - `lotion.t({zh: …, en: …})`: the value for the current language, falling back to the default language, then
+   to the first key. Values can be anything: text, asset paths, numbers, arrays. A value that is not a plain
+   object is returned as is.
+ - captions in several languages ( `{zh: [...], en: [...]}` ) start in the current language; readers can still
+   switch with `setCaptionLang`.
+ - `player.doc` is the current language's document, `player.docs` all of them.
+ - the player sets `lang` on its root element, for fonts, line breaking and assistive tools.
+
+Put every visible text through `lotion.t` or `{lang: …}`: text on the stage, chapter names, captions, the document,
+voice and other language-specific assets. A work that declares no languages behaves exactly as before.
 
 helpers:
 
@@ -241,6 +278,8 @@ With `?render` in the url, a page should cover the viewport with its stage and e
  - `window.DOC`, `window.CHAPTERS`: optional, the work's document and chapters ( `lotion doc` uses them ).
  - `window.CAPTIONS`: optional, captions as `{lang: [[t0, t1, text, meta?], ...]}` ( `lotion video` writes them as
    `.vtt` ).
+ - `window.LANG`, `window.LANGS`: optional, the current language and the languages the work supports. The url's
+   `?lang=xx` selects the language; `window.DOC` follows it, and `window.DOCS` has every language's document.
 
 `lotion.player` does this automatically, and only when `start()` is called: the cli waits for `window.seek` to
 exist before rendering, so it never captures a scene that is still being prepared. Any other page can follow
@@ -266,7 +305,8 @@ rescope ) and a loader, about 47KB minified.
  - `window.lotionBlock`: `{manager, mount, ready}`.
  - If a mounted block's interface provides `seek(t)` and `duration`, they are exposed per the render protocol
    under `?render`. If it also provides `ready` ( a promise, e.g. `player.ready` ), they are exposed after it
-   resolves. A block using `lotion.player` should pass `ready: player.ready` in its interface.
+   resolves. A block using `lotion.player` should pass `ready: player.ready` in its interface, and `lang`,
+   `langs` ( `player.lang`, `player.langs` ) when it has several languages.
 
 Note that csscope scopes a block's style to the *descendants* of its root, so put the element your style
 targets under the root ( or use `:scope` ). A block sample is in `web/src/pug/block/lotion-demo`.
@@ -296,6 +336,9 @@ options:
  - `--crf 16`: x264 quality.
  - `--cols 3`, `--tile 640`: contact sheet layout.
  - `--query`: extra url parameters, such as `--query bar=1`.
+ - `--lang xx`: render in that language ( adds `?lang=xx` ). `video` and `captions` then write only that language's
+   captions, as one `.vtt`. `--lang all` renders every language in `window.LANGS`, adding it to the file name:
+   `out.zh.mp4`, `out.en.mp4` ( `frames` writes into `<outdir>/<lang>` ).
  - `--block-root /block`, `--lib-root /assets/lib`: registry paths for `bundle`, relative to `base-url`.
 
 
