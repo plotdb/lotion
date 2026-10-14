@@ -1,3 +1,11 @@
+## v0.7.0
+
+ - player: `cover` option, the title frame. Before playback starts, and whenever the player is paused at 0, the stage
+   shows the frame at `cover` while the time stays 0; playing draws from 0. Opening on a title screen used to mean
+   `start: <t>`, which moved the playback time itself. `start` keeps its meaning ( open mid-way ). Not used in
+   `?render`.
+
+
 ## v0.6.0
 
  - document ( experimental ): a work can carry a Markdown document describing it, for search, review, translation and

@@ -402,7 +402,7 @@
       return;
     }
     this.t = t = clamp(t, 0, this.duration);
-    this.opt.seek(t);
+    this.opt.seek(this.frameT(t));
     p = 100 * t / this.duration + "%";
     this.el.fill.style.width = p;
     this.el.knob.style.left = p;
@@ -432,6 +432,14 @@
     }
     this.updateCaption();
     return this.fire('time', t);
+  }, ref$.frameT = function(t){
+    var c;
+    c = this.opt.cover;
+    if (c != null && c > 0 && !this.renderMode && !this.playing && t < 0.001) {
+      return c;
+    } else {
+      return t;
+    }
   }, ref$.updateCaption = function(){
     var t, list, act, cap, key, i$, ref$, len$, line;
     t = this.t;
