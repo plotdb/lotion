@@ -1,3 +1,21 @@
+## v0.8.0
+
+ - languages: a work can declare the languages it supports and pick its text and assets by the current one, decided
+   when the page loads ( `?lang=xx` in the url, else a preferred language, else the first; `zh-TW` / `zh-Hant`
+   match `zh`, `en-US` matches `en` ). `lotion.lang(langs, prefer)` decides it before any player exists,
+   `lotion.t({zh, en})` returns the current language's value ( falling back to the default ). player options
+   `langs` / `lang`, state `player.lang` / `player.langs`; the root element gets a `lang` attribute.
+   Works that declare no languages behave as before.
+ - captions start in the current language when `captionLang` is not given
+ - document: `doc` can be `{lang: markdown}`, and a page can hold one `<script type="text/markdown" class="lotion-doc"
+   lang="…">` per language ( `id="lotion-doc"` still works ). `player.doc` is the current language's,
+   `player.docs` all of them.
+ - render protocol: `window.LANG`, `window.LANGS`, `window.DOCS`; `window.DOC` follows the current language. The
+   block loader exposes `lang` / `langs` from a block's interface.
+ - cli: `--lang xx` renders in a language ( `video` / `captions` then write only its captions ); `--lang all` renders
+   every language into `out.<lang>.<ext>`.
+
+
 ## v0.7.0
 
  - player: `cover` option, the title frame. Before playback starts, and whenever the player is paused at 0, the stage

@@ -14,14 +14,28 @@ is valid.
 
 Readers take the first one found:
 
- 1. the player option `doc`: a Markdown string.
- 2. an element in the page: `<script type="text/markdown" id="lotion-doc">…</script>`. It travels
+ 1. the player option `doc`: a Markdown string, or one per language `{zh: '…', en: '…'}`.
+ 2. elements in the page: `<script type="text/markdown" id="lotion-doc">…</script>`, or one
+    `<script type="text/markdown" class="lotion-doc" lang="en">…</script>` per language. They travel
     with single-file works and `lotion bundle`.
- 3. a file `index.md` beside the work's `index.html` ( a directory or a zip ).
+ 3. a file `index.md` beside the work's `index.html` ( a directory or a zip ); per language,
+    `index.<lang>.md` such as `index.en.md`.
 
-`lotion.player` reads 1 or 2 into `player.doc` and, in `?render` mode, exposes it as `window.DOC`.
-`lotion doc <src> <out.md>` exports it, or drafts one from the page's chapters and captions when the
-page has none.
+`lotion.player` reads 1 or 2 into `player.docs` ( `{lang: markdown}`, the key is `''` for a document
+without a language ) and the current language's into `player.doc`; in `?render` mode it exposes them as
+`window.DOCS` and `window.DOC`. `lotion doc <src> <out.md>` exports it, or drafts one from the page's
+chapters and captions when the page has none.
+
+
+## Languages
+
+A work in several languages has one document per language, each a complete document in that language
+with its own `lang` field. They describe the same work: same parts, same times, same sources.
+
+Readers choose the document by language the way the player does: an exact match first, then the primary
+subtag ( `zh-TW` and `zh-Hant` take `zh`, `en-US` takes `en` ), then the work's default language ( the
+first in the player's `langs` ), then any. `lotion doc <src> <out.md> --lang en` exports one language,
+`--lang all` writes `out.<lang>.md` for each.
 
 
 ## Format
