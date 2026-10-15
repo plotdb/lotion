@@ -270,6 +270,7 @@
     this.last = null;
     this.started = false;
     this.speed = 1;
+    this.span = null;
     this.marks = [];
     this.host = null;
     this.interactive = !!opt.interactive;
@@ -295,6 +296,9 @@
       },
       rate: function(r){
         return this$._rate(r);
+      },
+      loop: function(v){
+        return this$._loop(v);
       }
     };
     this.ready = new Promise(function(res){
@@ -758,24 +762,61 @@
     }
     return results$;
   }, ref$.tick = function(now, id){
-    var this$ = this;
-    if (!this.playing || this.host || id !== this.loop) {
+    var wrapped, prev, nt, e, w, this$ = this;
+    if (!this.playing || this.host || id !== this.clock) {
       return;
     }
+    wrapped = false;
     if (this.last != null) {
-      this._seek(this.t + this.speed * (now - this.last) / 1000);
+      prev = this.t;
+      nt = prev + this.speed * (now - this.last) / 1000;
+      e = this.edge(prev, nt);
+      this._seek(e != null ? e : nt);
+      if (!this.playing || id !== this.clock) {
+        return;
+      }
+      if ((w = this.wrap(prev, nt)) != null) {
+        this._seek(w, {
+          jump: true
+        });
+        wrapped = true;
+      }
     }
     this.last = now;
-    if (!this.playing || id !== this.loop) {
-      return;
-    }
-    if ((this.speed > 0 && this.t >= this.duration) || (this.speed < 0 && this.t <= 0)) {
+    if (!wrapped && ((this.speed > 0 && this.t >= this.duration) || (this.speed < 0 && this.t <= 0))) {
       this._play(false);
       return;
     }
     return requestAnimationFrame(function(n){
       return this$.tick(n, id);
     });
+  }, ref$.loopRange = function(){
+    return this.span || (this.opt.loop && this.duration > 0 ? [0, this.duration] : null);
+  }, ref$.edge = function(prev, nt){
+    var r, a, b;
+    if (!(r = this.loopRange())) {
+      return null;
+    }
+    a = r[0], b = r[1];
+    if (nt > prev && prev <= b && nt >= b) {
+      return b;
+    } else if (nt < prev && prev >= a && nt <= a) {
+      return a;
+    } else {
+      return null;
+    }
+  }, ref$.wrap = function(prev, nt){
+    var e, ref$, a, b, len;
+    if ((e = this.edge(prev, nt)) == null) {
+      return null;
+    }
+    ref$ = this.loopRange(), a = ref$[0], b = ref$[1];
+    len = b - a;
+    if (nt > prev) {
+      return a + (nt - b) % len;
+    } else {
+      return b - (a - nt) % len;
+    }
   }, ref$.play = function(go){
     go == null && (go = true);
     if (this.host) {
@@ -805,7 +846,13 @@
       });
     }
     if (go && this.speed < 0 && this.t <= 0) {
-      go = false;
+      if (this.loopRange()) {
+        this._seek(this.loopRange()[1], {
+          jump: true
+        });
+      } else {
+        go = false;
+      }
     }
     was = this.playing;
     this.playing = go;
@@ -817,7 +864,7 @@
       this.fire(go ? 'play' : 'pause');
     }
     if (go && !was && !this.host) {
-      id = this.loop = (this.loop || 0) + 1;
+      id = this.clock = (this.clock || 0) + 1;
       return requestAnimationFrame(function(n){
         return this$.tick(n, id);
       });
@@ -832,6 +879,30 @@
     }
     this._rate(r);
     return this;
+  }, ref$.loop = function(a, b){
+    var v;
+    if (!arguments.length) {
+      return this.span ? this.span.slice() : null;
+    }
+    v = Array.isArray(a)
+      ? a
+      : a != null && a !== false ? [a, b] : null;
+    if (this.host) {
+      this.host.loop(v ? v.slice() : null);
+      return this;
+    }
+    this._loop(v);
+    return this;
+  }, ref$._loop = function(v){
+    v = v && v.length === 2 ? [clamp(+v[0], 0, this.duration), clamp(+v[1], 0, this.duration)] : null;
+    if (v && !(v[0] < v[1])) {
+      v = null;
+    }
+    if (this.span + "" === v + "") {
+      return;
+    }
+    this.span = v;
+    return this.fire('loop', v ? v.slice() : null);
   }, ref$._rate = function(r){
     r = +r;
     if (!isFinite(r) || r === this.speed) {

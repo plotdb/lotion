@@ -1,3 +1,15 @@
+## v0.10.0
+
+ - loops, as an authoring tool. player option `loop: true` loops the whole work ( past the end back to 0, backward
+   past 0 to the end ). `player.loop(a, b)` loops a section while playing, such as a beat repeated while waiting for
+   the reader; `loop(false)` cancels, `loop()` reads it, event `loop`. A section takes precedence over `loop: true`.
+   Wraps carry the overshoot, count as jumps for `at`, and come after the `at` at the boundary reached; times passed
+   again fire every lap. `?render` without a host does not loop.
+ - host: `host.loop([a, b] | null)` receives the work's sections, `drive.loop([a, b] | null)` reports the one in
+   effect. With a host, the host's clock applies both kinds of loop.
+ - demo: the interactive demo loops 4.5 - 5 s ( the cloud trembles ) while waiting for the drag.
+
+
 ## v0.9.0
 
  - interaction: a work can be interactive. The frame is `seek(t, state)`; player options `interactive` and `state`.

@@ -69,6 +69,8 @@ player options:
  - `start`: initial time, for opening mid-way. `?t=<sec>` in the url takes precedence.
  - `autoplay`: default `false`.
  - `cues`: optional function returning sound cues `[{t, ...}]`, exported by `lotion cues`.
+ - `loop`: `true` to loop the whole work: playing past the end continues from 0 ( and backward past 0 from the end ).
+   See Loops. Not used in `?render`.
  - `interactive`: `true` when the work handles clicks, drags or presses itself ( see Interaction ).
  - `state`: initial state of an interactive work, a JSON-serializable object. Also the state used in `?render`.
  - `loading`: what to show before `start()`. default `true` ( a spinner ); a string is used as custom html;
@@ -76,7 +78,8 @@ player options:
 
 player methods: `start()`, `seek(t)`, `play(go = true)`, `pause()`, `toggle()`, `rate(r)`, `fullscreen()`,
 `encode(opt)` ( see Online Export ), `showCaptions(on = true)`, `setCaptionLang(lang)`, `on(name, cb)`, `off(name, cb)`;
-for interaction `set(key, value)`, `reset()`, `redraw()`, `at(t, fn)`, `emit(name, data)` ( see Interaction ).
+for interaction `set(key, value)`, `reset()`, `redraw()`, `at(t, fn)`, `loop(a, b)`, `emit(name, data)`
+( see Interaction, Loops ).
 `player.ready` is a promise resolved by `start()`.
 
 player state: `t`, `playing`, `chapter` ( `{index, t, name, meta}` or `null` ), `caption`
@@ -92,6 +95,7 @@ events ( `player.on(name, cb)` ):
  - `captions`: captions turned on / off or switched language, with `{on, lang}`.
  - `play`, `pause`: playback started or stopped ( by anyone: the reader, the work, the end of the timeline ).
  - `rate`: the playback rate changed, with the rate.
+ - `loop`: the loop section changed, with `[a, b]` or `null`.
  - `state`: the state changed ( `set` or `reset` ), with `player.state`.
  - `emit`: any custom event sent by `emit(name, data)`, with `{name, data}`; the event `name` itself fires too.
 
@@ -196,17 +200,46 @@ An interactive work is still a function of time, with one more input: the frame 
    ( or `?state` ): the output is deterministic. Describe the interactions and their outcomes in the document, since
    search, summaries and review only see the document and the default frames.
 
+### Loops
+
+Looping is the author's tool, in two forms:
+
+ - `loop: true` ( player option ): the whole work loops, for works meant to play endlessly ( an ambient piece, a
+   five-minute loop ). Make the last frame flow into the first; for sound, use a loop of the same length.
+ - `loop(a, b)` ( or `loop([a, b])` ): loop a section while playing, for instance repeat 1:23 - 1:24 while waiting for
+   the reader: `p.at(84, ({dir}) -> if dir > 0 and !p.state.done => p.loop(83, 84))`, then `p.loop(false)` once the
+   reader acts. `loop(false)` or `loop(null)` cancels, `loop()` returns `[a, b]` or `null`. A section takes precedence
+   over `loop: true`. Make the section's two ends meet seamlessly too ( a tremble of a whole number of periods, a
+   pose that returns to itself ).
+
+While playing forward, reaching `b` ( the end, for `loop: true` ) continues from `a` plus the overshoot, so no frame
+stalls; playing backward, reaching `a` continues from `b` minus the overshoot. Playback that starts before `a` enters
+the section and stays; playback after `b` is not pulled back. For `at`:
+
+ - the wrap is a jump: it passes nothing by itself. Times passed again on the next lap fire again, every lap.
+ - the boundary you reach fires before the wrap: forward, an `at` at `b` fires, then playback wraps ( if its callback
+   pauses, playback stays at `b` ); backward, the same for `a`. The boundary you land on ( `a` forward, `b` backward )
+   does not fire on a wrap.
+ - setting the section inside an `at` at `b`, as in the example above, wraps in the same step.
+
+In `?render` without a host ( frame export ) nothing loops. With a host, the host loops its own clock ( below ).
+
 ### Host
 
 A page embedding the player can own the clock ( a bookshelf with its own transport, sound and speed control ). It
-sets `player.host = {play, pause, seek, rate}`: from then on the work's ( and the control bar's ) `play()`, `pause()`,
-`toggle()`, `seek(t)` and `rate(r)` call the host instead of acting, and the host decides. The host then drives the
+sets `player.host = {play, pause, seek, rate, loop}`: from then on the work's ( and the control bar's ) `play()`,
+`pause()`, `toggle()`, `seek(t)`, `rate(r)` and `loop(a, b)` call the host instead of acting, and the host decides. The host then drives the
 player with `player.drive`, which acts directly and never goes back to the host:
 
  - `drive.play()`, `drive.pause()`: mark the player playing or paused ( fires `play` / `pause`; `at` only fires
    while playing ). With a host, the player runs no clock of its own.
  - `drive.seek(t)`: move to `t` as part of playback, frame by frame; `at` fires for times passed ( rules above ).
    `drive.seek(t, {jump: true})` for jumps: the reader dragging the timeline, or carrying out the work's `seek(t)`.
+ - `drive.loop([a, b] | null)`: record the loop section the host is applying ( fires `loop`, read back by `loop()` ).
+   The work's `loop(a, b)` calls `host.loop([a, b] | null)`; the host loops its clock and reports with `drive.loop`.
+   The whole-work loop ( `player.opt.loop` ) is also the host's to apply; the player does not wrap by itself. To
+   keep `at` exact, a host wrapping from `b` to `a + overshoot` calls `drive.seek(b)` first, then
+   `drive.seek(a + overshoot, {jump: true})` ( backward: `drive.seek(a)`, then `drive.seek(b - overshoot, {jump: true})` ).
  - `drive.rate(r)`: record the work's rate ( fires `rate`, read back by `rate()` ). Report the rate the work asked
    for, not multiplied by a reader's speed: `at` uses its sign for the direction.
 
