@@ -26,9 +26,10 @@ do ->
 
   # 山: 底寬固定, 高度依狀態
   peak = (s) -> 980 - s.h * 0.25
-  # 雲的 x: 5 秒前自己飄; 之後拖過山才往右下沉, 沒拖過就停在讀者拖到的位置
+  # 雲的 x: 4.5 秒前自己飄; 5 秒後拖過山才往右下沉. 等待中 ( 4.5 秒起 ) 停在讀者拖到的位置
   cloud-x = (t, s) ->
-    if t < 5 => lerp 160, 520, ss(t / 5)
+    if t < 4.5 => lerp 160, 520, ss(t / 4.5)
+    else if t < 5 => (s.drag ? 520)
     else if s.crossed => lerp 1040, 1560, ss((t - 5) / 6)
     else (s.drag ? 520)
   seek = (t, s) ->
@@ -37,9 +38,11 @@ do ->
     put mtn, 540, 980 - h
     x = cloud-x t, s
     y = if t >= 5 and s.crossed => lerp(peak(s) - 140, 760, ss((t - 5) / 6)) else peak(s) - 140
+    # 等待的 4.5 - 5 秒會循環播放: 顫動用整數個週期, 頭尾畫面相同, 接回時無接縫
+    if !s.crossed and t >= 4.5 and t < 5 => y += 8 * Math.sin(2 * Math.PI * 2 * (t - 4.5) / 0.5)
     put cloud, x, y
     put ding, 160, 140, 1, vis(t, 1, 4, 0.2, 0.2)
-    put hint, 620, 160, 1, (if t >= 4.99 and !s.crossed => 1 else 0)
+    put hint, 620, 160, 1, (if t >= 4.5 and !s.crossed => 1 else 0)
     put temp, 1440, 860, 1, vis(t, 7)
     txt temp, "#{(20 + s.h * 0.004).toFixed(1)} °C"
     put ctl, 1060, 50
@@ -47,7 +50,8 @@ do ->
     txt slow, (if p.rate! == 0.5 => tr({zh: '正常速度', en: 'Normal'}) else tr({zh: '慢動作', en: 'Slow'}))
 
   # 播到 5 秒停下等讀者 ( 倒播經過不停 )
-  p.at 5, ({dir}) -> if dir > 0 and !p.state.crossed => p.pause!
+  # 播到 5 秒還沒拖過: 循環 4.5 - 5 秒等讀者 ( 倒播經過不理 )
+  p.at 5, ({dir}) -> if dir > 0 and !p.state.crossed => p.loop 4.5, 5
 
   # 叮: 只發聲, 不碰時間軸
   ac = null
@@ -58,17 +62,17 @@ do ->
     g.gain.exponentialRampToValueAtTime 0.001, ac.currentTime + 0.6
     o.connect(g).connect(ac.destination); o.start!; o.stop ac.currentTime + 0.6
 
-  # 拖雲: 只在停在 5 秒、還沒拖過時有效. 拖過山頂 ( x > 1000 ) 就繼續播放
+  # 拖雲: 4.5 秒起、還沒拖過時有效. 拖過山頂 ( x > 1000 ) 就結束循環, 從 5 秒繼續
   drag = null
   to-stage = (e) -> (e.clientX - st.getBoundingClientRect!left) * p.width / st.getBoundingClientRect!width
   cloud.addEventListener \pointerdown, (e) ->
-    if p.t < 4.99 or p.state.crossed => return
+    if p.t < 4.5 or p.state.crossed => return
     cloud.setPointerCapture e.pointerId
     drag := {x0: to-stage(e), c0: cloud-x(p.t, p.state)}
   cloud.addEventListener \pointermove, (e) ->
     if !drag => return
     x = clamp drag.c0 + to-stage(e) - drag.x0, 160, 1100
-    if x > 1000 => drag := null; p.set {crossed: true, drag: null}; p.play!
+    if x > 1000 => drag := null; p.loop false; p.set {crossed: true, drag: null}; p.seek 5; p.play!
     else p.set \drag, x
   cloud.addEventListener \pointerup, -> drag := null
 

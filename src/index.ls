@@ -150,6 +150,7 @@ hit = (el) -> el.classList.add \lotion-hit; el
 #   - start: 初始時間 ( 從中間開始看 ). 網址的 ?t=秒數 優先. 要一打開就看到標題畫面請用 cover, 不要用 start.
 #   - autoplay: 預設 false
 #   - cues: 選用, -> [{t, name, ...}] 給 cli 匯出音效時間點
+#   - loop: true 時整支循環: 播到結尾接回 0 ( 倒播到 0 接回結尾 ). 區段循環用 p.loop(a, b). ?render 不循環.
 #   - interactive: 宣告作品有互動 ( 外層據此把點擊交給作品 ). 可互動的元素加上 class lotion-hit ( lotion.hit(el) ).
 #   - state: 狀態的初始值 ( 可 JSON 序列化的物件 ), 也是逐格輸出用的值. 網址 ?state=<JSON> 會合併進去.
 #     p.set(k, v) / p.set({...}) 改變狀態並以目前的 t 重畫, p.reset() 回到初始值.
@@ -177,6 +178,8 @@ player = (opt = {}) ->
     started: false
     # 播放速率 ( 負數為倒播 ) 與 at() 登記的時間點
     speed: 1
+    # 循環區段 [a, b], 由 loop(a, b) 設定
+    span: null
     marks: []
     # 外層 ( 如書架 ) 掌握時鐘時設定 {play, pause, seek, rate}: 作品與控制列的播放要求改交給它
     host: null
@@ -192,6 +195,7 @@ player = (opt = {}) ->
     pause: ~> @_play false
     seek: (t, o) ~> @_seek t, o
     rate: (r) ~> @_rate r
+    loop: (v) ~> @_loop v
   # start() 時 resolve: 供外部 ( 如 block loader ) 等待內容就緒
   @ready = new Promise (res) ~> @ready-res = res
   @render-mode = /[?&]render\b/.test location.search
@@ -435,14 +439,38 @@ player.prototype = Object.create(Object.prototype) <<<
     @
   fire: (name, v) -> for h in (@handlers[name] or []).slice! => h v
 
-  # 播放器自己的時鐘 ( 沒有 host 時 ). 依速率前進, 正向到尾、倒播到 0 時停止
+  # 播放器自己的時鐘 ( 沒有 host 時 ). 依速率前進, 正向到尾、倒播到 0 時停止 ( 循環時接回, 見 wrap )
+  # 會越過循環的邊界時, 先連續前進到邊界 ( 觸發邊界上的 at ), 回呼沒有暫停才接回
   tick: (now, id) ->
-    if !@playing or @host or id != @loop => return
-    if @last? => @_seek @t + @speed * (now - @last) / 1000
+    if !@playing or @host or id != @clock => return
+    wrapped = false
+    if @last?
+      prev = @t
+      nt = prev + @speed * (now - @last) / 1000
+      e = @edge prev, nt
+      @_seek (if e? => e else nt)
+      if !@playing or id != @clock => return
+      # 回呼可能剛設定了區段 ( 如 at(b) 裡呼叫 loop(a, b) ), 以目前的區段判斷是否接回
+      if (w = @wrap prev, nt)? => @_seek w, {jump: true}; wrapped = true
     @last = now
-    if !@playing or id != @loop => return
-    if (@speed > 0 and @t >= @duration) or (@speed < 0 and @t <= 0) => @_play false; return
+    if !wrapped and ((@speed > 0 and @t >= @duration) or (@speed < 0 and @t <= 0)) => @_play false; return
     requestAnimationFrame (n) ~> @tick n, id
+
+  # 目前的循環範圍: 區段 [a, b] 優先, 其次是整支循環 ( opt.loop ) [0, duration]; 沒有為 null
+  loop-range: -> @span or (if @opt.loop and @duration > 0 => [0, @duration] else null)
+  # 從 prev 前進到 nt 會越過的循環邊界 ( 正向 b, 倒播 a ); 不會越過為 null
+  edge: (prev, nt) ->
+    if !(r = @loop-range!) => return null
+    [a, b] = r
+    if nt > prev and prev <= b and nt >= b => b
+    else if nt < prev and prev >= a and nt <= a => a
+    else null
+  # 越過邊界後接回的時間 ( 帶溢出量 ): 正向 a + 溢出, 倒播 b - 溢出; 不需接回為 null
+  wrap: (prev, nt) ->
+    if !(e = @edge prev, nt)? => return null
+    [a, b] = @loop-range!
+    len = b - a
+    if nt > prev => a + (nt - b) % len else b - (a - nt) % len
 
   # 播放 / 暫停. 設了 host 時改交給 host
   play: (go = true) ->
@@ -457,14 +485,14 @@ player.prototype = Object.create(Object.prototype) <<<
     if !@started or @encoding => return
     go = !!go
     if go and @speed >= 0 and @t >= @duration => @_seek 0, {jump: true}
-    if go and @speed < 0 and @t <= 0 => go = false
+    if go and @speed < 0 and @t <= 0 => (if @loop-range! => @_seek @loop-range!.1, {jump: true} else go = false)
     was = @playing
     @playing = go
     @last = null
     @_seek @t, {jump: true}
     if go != was => @fire (if go => \play else \pause)
     if go and !was and !@host
-      id = @loop = (@loop or 0) + 1
+      id = @clock = (@clock or 0) + 1
       requestAnimationFrame (n) ~> @tick n, id
 
   # 播放速率: 小數為慢 / 快動作, 負數為倒播. 不帶參數時回傳目前速率. 設了 host 時改交給 host
@@ -473,6 +501,21 @@ player.prototype = Object.create(Object.prototype) <<<
     if @host => @host.rate r; return @
     @_rate r
     @
+  # 循環區段: loop(a, b) 或 loop([a, b]) 設定, loop(false) / loop(null) 取消, loop() 回傳 [a, b] 或 null.
+  # 區段優先於整支循環 ( opt.loop ). 設了 host 時改交給 host ( host.loop([a, b] | null) )
+  loop: (a, b) ->
+    if !arguments.length => return (if @span => @span.slice! else null)
+    v = if Array.isArray(a) => a else if a? and a != false => [a, b] else null
+    if @host => @host.loop(if v => v.slice! else null); return @
+    @_loop v
+    @
+  _loop: (v) ->
+    v = if v and v.length == 2 => [clamp(+v.0, 0, @duration), clamp(+v.1, 0, @duration)] else null
+    if v and !(v.0 < v.1) => v = null
+    if "#{@span}" == "#{v}" => return
+    @span = v
+    @fire \loop, (if v => v.slice! else null)
+
   _rate: (r) ->
     r = +r
     if !isFinite(r) or r == @speed => return
