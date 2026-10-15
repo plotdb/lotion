@@ -29,6 +29,27 @@
    以 block 封裝時，interface 要帶上 `ready: player.ready`，render 協定才會等它就緒。
 
 
+## 互動作品
+
+畫面仍是時間的函式，只是多一份狀態：`seek(t, state)`。
+
+ - player 選項 `interactive: true` 宣告有互動，`state: {…}` 給狀態初始值。初始值就是逐格輸出、
+   書架審查與預覽看到的畫面，要讓它自己就是一支完整、看得懂的動畫。狀態要能 JSON 序列化。
+ - 可互動的元素加 class `lotion-hit` ( 或 `lotion.hit(el)` )，用一般 DOM 事件 ( click、pointerdown / move / up )。
+   點在它們上不會切換播放；點在其他地方照舊播放 / 暫停。元素何時出現照樣在 `seek` 裡依 t 決定。
+ - 讀者的操作改變狀態用 `p.set(key, value)` 或 `p.set({…})`：立刻以目前的 t 重畫 ( 暫停中也會 )。
+   不要在事件處理裡直接改畫面，畫面一律由 `seek(t, state)` 算出，否則拖時間軸或重畫就會不一致。
+   只發聲、不影響畫面的操作 ( 按鈕發出提示音 ) 不需要狀態。
+ - 程式控制播放：`p.play()`、`p.pause()`、`p.seek(t)`、`p.rate(r)` ( 小數為慢動作，負數倒播，倒到 0 自動停 )。
+ - 「播到某處停下來等讀者」：`p.at(12, ({dir}) -> if dir > 0 and !p.state.answered => p.pause!)`。
+   `at` 只在播放經過時觸發，拖時間軸跳過去不算；倒播經過時 `dir` 是 -1，通常要忽略。
+   讀者完成操作後 `p.set(…)` 再 `p.play()` 繼續。
+ - 拖動元素時把指標座標換算成舞台座標：舞台會縮放，`(e.clientX - stage.getBoundingClientRect().left) * p.width / 舞台的顯示寬度`。
+ - 在書架等外層播放時，播放要求會交給外層處理 ( `p.host` )，作品寫法不變，照樣呼叫 `p.play()` 等。
+ - 文稿要寫出每個互動：在哪裡、讀者能做什麼、各種結果。書架的搜尋、簡介與審查只看得到文稿與預設狀態的畫面。
+ - 用 `lotion sheet … --state '{"crossed":true}'` 檢查其他狀態的畫面。
+
+
 ## 多語作品
 
 語系在頁面載入時決定 ( 網址 `?lang=xx`，換語言就是重新載入 )，腳本只要知道目前語系，自己挑文字與素材。

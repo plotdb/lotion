@@ -47,7 +47,8 @@ player options:
  - `root`: container element or selector.
  - `width`, `height`: design size of the stage. default `1920` x `1080`. The stage scales to fit the container.
  - `duration`: total length in seconds.
- - `seek(t)`: render the frame at time `t`. must depend on `t` only.
+ - `seek(t, state)`: render the frame at time `t`. must depend on `t` and `state` only ( `state` is `player.state`,
+   see Interaction ).
  - `chapters`: optional `[[t, name, meta?], ...]`, shown as ticks on the timeline and used by `←` / `→`. `meta` is
    an optional object ( such as `{description, thumb}` ) the player passes through in `player.chapter`.
  - `captions`: optional `[[t0, t1, text, meta?], ...]` ( `meta` such as `{speaker}` ), or `{zh: [...], en: [...]}`
@@ -68,16 +69,19 @@ player options:
  - `start`: initial time, for opening mid-way. `?t=<sec>` in the url takes precedence.
  - `autoplay`: default `false`.
  - `cues`: optional function returning sound cues `[{t, ...}]`, exported by `lotion cues`.
+ - `interactive`: `true` when the work handles clicks, drags or presses itself ( see Interaction ).
+ - `state`: initial state of an interactive work, a JSON-serializable object. Also the state used in `?render`.
  - `loading`: what to show before `start()`. default `true` ( a spinner ); a string is used as custom html;
    `false` shows nothing.
 
-player methods: `start()`, `seek(t)`, `play(go = true)`, `pause()`, `toggle()`, `fullscreen()`, `encode(opt)`
-( see Online Export ), `showCaptions(on = true)`, `setCaptionLang(lang)`, `on(name, cb)`, `off(name, cb)`.
+player methods: `start()`, `seek(t)`, `play(go = true)`, `pause()`, `toggle()`, `rate(r)`, `fullscreen()`,
+`encode(opt)` ( see Online Export ), `showCaptions(on = true)`, `setCaptionLang(lang)`, `on(name, cb)`, `off(name, cb)`;
+for interaction `set(key, value)`, `reset()`, `redraw()`, `at(t, fn)`, `emit(name, data)` ( see Interaction ).
 `player.ready` is a promise resolved by `start()`.
 
 player state: `t`, `playing`, `chapter` ( `{index, t, name, meta}` or `null` ), `caption`
 ( `{t0, t1, text, meta, lang}` or `null` ), `captionsOn`, `captionLang`, `captionLangs`, `lang` and `langs`
-( `null` and `[]` when the work declares no languages ), `doc`, `docs`.
+( `null` and `[]` when the work declares no languages ), `doc`, `docs`, `state`, `interactive`, `host`, `drive`.
 
 events ( `player.on(name, cb)` ):
 
@@ -86,6 +90,10 @@ events ( `player.on(name, cb)` ):
  - `caption`: the shown caption changed ( including to `null` ), with `player.caption`. Fired whether captions
    are on or off, so a page can read them anyway ( search, transcripts ).
  - `captions`: captions turned on / off or switched language, with `{on, lang}`.
+ - `play`, `pause`: playback started or stopped ( by anyone: the reader, the work, the end of the timeline ).
+ - `rate`: the playback rate changed, with the rate.
+ - `state`: the state changed ( `set` or `reset` ), with `player.state`.
+ - `emit`: any custom event sent by `emit(name, data)`, with `{name, data}`; the event `name` itself fires too.
 
 Until `start()` is called, the stage is hidden behind the loading screen, the control bar is disabled, and
 `seek` / `play` do nothing. Scenes often need asynchronous preparation before the first frame is right
@@ -145,8 +153,71 @@ with another `?lang=`. So the script only needs to know the current language to 
 Put every visible text through `lotion.t` or `{lang: …}`: text on the stage, chapter names, captions, the document,
 voice and other language-specific assets. A work that declares no languages behaves exactly as before.
 
+### Interaction
+
+An interactive work is still a function of time, with one more input: the frame is `seek(t, state)`.
+
+    p = new lotion.player do
+      root: '#demo'
+      duration: 12
+      interactive: true
+      state: {h: 2000, crossed: false}
+      seek: (t, s) -> seek t, s
+    btn = lotion.hit lotion.mk('btn', 'Ding', p.stage)
+    btn.addEventListener 'click', -> ding!                  # no timeline involved
+    slider.addEventListener 'input', -> p.set 'h', +slider.value
+    p.at 5, ({dir}) -> if dir > 0 and !p.state.crossed => p.pause!
+
+ - Interactive elements: add the class `lotion-hit`, or call `lotion.hit(el)`. Clicks, drags and presses on them
+   belong to the work: they do not toggle playback. Elsewhere the player behaves as usual. The css gives
+   `.lotion-hit` `cursor: pointer`, `touch-action: none` ( dragging does not scroll the page ), `user-select: none`
+   and `-webkit-touch-callout: none` ( a long press shows no menu ). Use ordinary DOM events ( `click`,
+   `pointerdown` / `move` / `up`, `wheel` ). When an element shows up is decided in `seek`, like everything else.
+ - State: `player.state`, starting from the option `state` ( `?state=<JSON>` in the url is merged into it ).
+   `set(key, value)` or `set({...})` merges into it, redraws the current time at once ( paused or not ) and fires
+   `state`; `reset()` returns to the option `state`. `redraw()` redraws the current time without a change. Keep the
+   state JSON-serializable: a host may save it and restore it after a reload.
+ - Playback from code: `play()`, `pause()`, `toggle()`, `seek(t)`, and `rate(r)`: the playback rate, fractional for slow
+   or fast motion, negative to play backward; backward playback stops by itself at 0. `rate()` returns the current
+   rate. Playing forward from the end restarts at 0.
+ - `at(t, fn)`: calls `fn({t, dir})` when playback *passes* `t` ( `dir` is `1` forward, `-1` backward ), and returns
+   a function that cancels it. A move from `a` to `b` passes `t` when all of these hold:
+   - the player is playing ( `player.playing` );
+   - the move is not a jump: `seek(t)` ( dragging the timeline, chapter keys, a jump from code ) never passes anything,
+     and neither does `drive.seek(t, {jump: true})`;
+   - it goes in the direction of the rate ( forward for a positive rate, backward for a negative one );
+   - it is at most 1 second ( a longer step, such as a background tab catching up, counts as a jump );
+   - `a < t <= b` going forward, `b <= t < a` going backward. So pausing at `t` inside its callback and playing
+     again does not fire it a second time.
+   Several times passed in one step fire in the order passed.
+ - `emit(name, data)`: a custom event from the work, such as `emit('quiz', {correct: true})`. It fires `name` and
+   `emit` ( `{name, data}` ) on the player, so a host can forward everything.
+ - In `?render` without a host ( frame export ), `at` callbacks do not run and the state stays at its initial value
+   ( or `?state` ): the output is deterministic. Describe the interactions and their outcomes in the document, since
+   search, summaries and review only see the document and the default frames.
+
+### Host
+
+A page embedding the player can own the clock ( a bookshelf with its own transport, sound and speed control ). It
+sets `player.host = {play, pause, seek, rate}`: from then on the work's ( and the control bar's ) `play()`, `pause()`,
+`toggle()`, `seek(t)` and `rate(r)` call the host instead of acting, and the host decides. The host then drives the
+player with `player.drive`, which acts directly and never goes back to the host:
+
+ - `drive.play()`, `drive.pause()`: mark the player playing or paused ( fires `play` / `pause`; `at` only fires
+   while playing ). With a host, the player runs no clock of its own.
+ - `drive.seek(t)`: move to `t` as part of playback, frame by frame; `at` fires for times passed ( rules above ).
+   `drive.seek(t, {jump: true})` for jumps: the reader dragging the timeline, or carrying out the work's `seek(t)`.
+ - `drive.rate(r)`: record the work's rate ( fires `rate`, read back by `rate()` ). Report the rate the work asked
+   for, not multiplied by a reader's speed: `at` uses its sign for the direction.
+
+`host` can be set before or after `start()`. A host commonly loads the work in `?render` mode ( stage covering the
+page, no control bar ); with a host set, `?render` keeps interaction: elements stay clickable, `at` callbacks run,
+`set` redraws, and `?state=` still sets the initial state. Without a host the player keeps its own clock and
+`drive` works the same way, minus the clock taking over.
+
 helpers:
 
+ - `hit(el)`: mark `el` as interactive ( class `lotion-hit` ). returns `el`.
  - `spring(t, w = 14, z = 0.8)`: step response of a damped spring, `0 -> 1`.
  - `track(keys, opt = 'std')`: `keys` is `[[t, value, preset?], ...]`. returns `(t) -> value`, summing one
    spring response per change of target. `opt` / `preset` is `{w, z}` or a name in `presets`
@@ -278,6 +349,8 @@ With `?render` in the url, a page should cover the viewport with its stage and e
  - `window.DOC`, `window.CHAPTERS`: optional, the work's document and chapters ( `lotion doc` uses them ).
  - `window.CAPTIONS`: optional, captions as `{lang: [[t0, t1, text, meta?], ...]}` ( `lotion video` writes them as
    `.vtt` ).
+ - `window.STATE`: optional, the state of an interactive work. `?state=<JSON>` in the url is merged into the initial
+   state, so a frame can be rendered in any state.
  - `window.LANG`, `window.LANGS`: optional, the current language and the languages the work supports. The url's
    `?lang=xx` selects the language; `window.DOC` follows it, and `window.DOCS` has every language's document.
 
@@ -336,6 +409,7 @@ options:
  - `--crf 16`: x264 quality.
  - `--cols 3`, `--tile 640`: contact sheet layout.
  - `--query`: extra url parameters, such as `--query bar=1`.
+ - `--state '<json>'`: render an interactive work in that state ( adds `?state=` ).
  - `--lang xx`: render in that language ( adds `?lang=xx` ). `video` and `captions` then write only that language's
    captions, as one `.vtt`. `--lang all` renders every language in `window.LANGS`, adding it to the file name:
    `out.zh.mp4`, `out.en.mp4` ( `frames` writes into `<outdir>/<lang>` ).

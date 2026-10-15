@@ -1,5 +1,5 @@
 (function(){
-  var PI, sin, cos, exp, sqrt, round, clamp, lerp, ss, spring, presets, track, vis, bump, typing, hex, mixc, rgb, mk, put, txt, NS, svg, langState, matchLang, urlLang, decideLang, pick, player, ref$, libs, libCache, lib, encode, vttTime, vttParseTime, vtt, doc, lotion;
+  var PI, sin, cos, exp, sqrt, round, clamp, lerp, ss, spring, presets, track, vis, bump, typing, hex, mixc, rgb, mk, put, txt, NS, svg, langState, matchLang, urlLang, decideLang, pick, MAX_STEP, cloneState, hit, player, ref$, libs, libCache, lib, encode, vttTime, vttParseTime, vtt, doc, lotion;
   PI = Math.PI, sin = Math.sin, cos = Math.cos, exp = Math.exp, sqrt = Math.sqrt, round = Math.round;
   clamp = function(v, a, b){
     a == null && (a = 0);
@@ -239,8 +239,20 @@
       ? k
       : keys[0]];
   };
+  MAX_STEP = 1;
+  cloneState = function(s){
+    if (s) {
+      return JSON.parse(JSON.stringify(s));
+    } else {
+      return {};
+    }
+  };
+  hit = function(el){
+    el.classList.add('lotion-hit');
+    return el;
+  };
   player = function(opt){
-    var c, tracks, k, v, ref$, this$ = this;
+    var m, e, c, tracks, k, v, ref$, this$ = this;
     opt == null && (opt = {});
     this.opt = opt;
     this.root = typeof opt.root === 'string'
@@ -257,6 +269,34 @@
     this.playing = false;
     this.last = null;
     this.started = false;
+    this.speed = 1;
+    this.marks = [];
+    this.host = null;
+    this.interactive = !!opt.interactive;
+    this.state = cloneState(opt.state);
+    if (m = /[?&]state=([^&#]*)/.exec(location.search)) {
+      try {
+        import$(this.state, JSON.parse(decodeURIComponent(m[1])));
+      } catch (e$) {
+        e = e$;
+        console.warn("[lotion] ?state is not valid JSON: " + e.message);
+      }
+    }
+    this.drive = {
+      play: function(go){
+        go == null && (go = true);
+        return this$._play(go);
+      },
+      pause: function(){
+        return this$._play(false);
+      },
+      seek: function(t, o){
+        return this$._seek(t, o);
+      },
+      rate: function(r){
+        return this$._rate(r);
+      }
+    };
     this.ready = new Promise(function(res){
       return this$.readyRes = res;
     });
@@ -297,6 +337,9 @@
     var r, ref$, html, q, this$ = this;
     r = this.root;
     r.classList.add('lotion');
+    if (this.interactive) {
+      r.classList.add('lotion-interactive');
+    }
     if (this.lang != null) {
       r.setAttribute('lang', this.lang);
     }
@@ -371,8 +414,11 @@
     }
     if (this.renderMode) {
       window.seek = function(t){
-        return this$.opt.seek(t);
+        return this$.opt.seek(t, this$.state);
       };
+      if (this.interactive || this.opt.state) {
+        window.STATE = this.state;
+      }
       window.DURATION = this.duration;
       if (this.opt.cues) {
         window.cues = this.opt.cues;
@@ -396,7 +442,7 @@
     }
     this.readyRes(this);
     m = /[?&]t=([\d.]+)/.exec(location.search);
-    this.seek(m
+    this._seek(m
       ? +m[1]
       : this.renderMode
         ? 0
@@ -440,8 +486,11 @@
       e.stopPropagation();
       return this$.showCaptions(!this$.captionsOn);
     });
-    this.viewport.addEventListener('click', function(){
+    this.viewport.addEventListener('click', function(e){
       this$.root.focus();
+      if (e.target.closest && e.target.closest('.lotion-hit')) {
+        return;
+      }
       return this$.toggle();
     });
     dragging = false;
@@ -502,12 +551,23 @@
   }, ref$.fmt = function(t){
     return Math.floor(t / 60) + ":" + ("0" + Math.floor(t % 60)).slice(-2);
   }, ref$.seek = function(t){
-    var p, ci, i$, ref$, len$, i, c, ch;
+    if (this.host) {
+      this.host.seek(t);
+      return this;
+    }
+    this._seek(t, {
+      jump: true
+    });
+    return this;
+  }, ref$._seek = function(t, o){
+    var prev, p, ci, i$, ref$, len$, i, c, ch;
+    o == null && (o = {});
     if (!this.started || this.encoding) {
       return;
     }
+    prev = this.t;
     this.t = t = clamp(t, 0, this.duration);
-    this.opt.seek(this.frameT(t));
+    this.opt.seek(this.frameT(t), this.state);
     p = 100 * t / this.duration + "%";
     this.el.fill.style.width = p;
     this.el.knob.style.left = p;
@@ -536,7 +596,82 @@
       this.fire('chapter', this.chapter);
     }
     this.updateCaption();
-    return this.fire('time', t);
+    this.fire('time', t);
+    if (!o.jump) {
+      return this.pass(prev, t);
+    }
+  }, ref$.pass = function(a, b){
+    var d, dir, due, i$, len$, m, results$ = [];
+    if (!this.playing || !this.marks.length || a === b || (this.renderMode && !this.host)) {
+      return;
+    }
+    d = b - a;
+    if (Math.abs(d) > MAX_STEP || (this.speed !== 0 && d > 0 !== this.speed > 0)) {
+      return;
+    }
+    dir = d > 0
+      ? 1
+      : -1;
+    due = this.marks.filter(function(m){
+      if (dir > 0) {
+        return a < m.t && m.t <= b;
+      } else {
+        return b <= m.t && m.t < a;
+      }
+    });
+    due.sort(function(x, y){
+      return dir * (x.t - y.t);
+    });
+    for (i$ = 0, len$ = due.length; i$ < len$; ++i$) {
+      m = due[i$];
+      if (in$(m.fn, this.marks.map(fn$))) {
+        results$.push(m.fn({
+          t: m.t,
+          dir: dir
+        }));
+      }
+    }
+    return results$;
+    function fn$(x){
+      return x.fn;
+    }
+  }, ref$.at = function(t, fn){
+    var m, this$ = this;
+    m = {
+      t: t,
+      fn: fn
+    };
+    this.marks.push(m);
+    return function(){
+      return this$.marks = this$.marks.filter(function(x){
+        return x !== m;
+      });
+    };
+  }, ref$.redraw = function(){
+    if (this.started && !this.encoding) {
+      return this.opt.seek(this.frameT(this.t), this.state);
+    }
+  }, ref$.set = function(k, v){
+    if (k && typeof k === 'object') {
+      import$(this.state, k);
+    } else {
+      this.state[k] = v;
+    }
+    this.redraw();
+    this.fire('state', this.state);
+    return this;
+  }, ref$.reset = function(){
+    this.state = cloneState(this.opt.state);
+    this.redraw();
+    this.fire('state', this.state);
+    return this;
+  }, ref$.emit = function(name, data){
+    this.fire(name, data);
+    this.fire('emit', {
+      name: name,
+      data: data
+    });
+    return this;
   }, ref$.frameT = function(t){
     var c;
     c = this.opt.cover;
@@ -622,44 +757,88 @@
       results$.push(h(v));
     }
     return results$;
-  }, ref$.tick = function(now){
+  }, ref$.tick = function(now, id){
     var this$ = this;
-    if (!this.playing) {
+    if (!this.playing || this.host || id !== this.loop) {
       return;
     }
     if (this.last != null) {
-      this.seek(this.t + (now - this.last) / 1000);
+      this._seek(this.t + this.speed * (now - this.last) / 1000);
     }
     this.last = now;
-    if (this.t >= this.duration) {
-      this.playing = false;
-      this.seek(this.t);
+    if (!this.playing || id !== this.loop) {
+      return;
+    }
+    if ((this.speed > 0 && this.t >= this.duration) || (this.speed < 0 && this.t <= 0)) {
+      this._play(false);
       return;
     }
     return requestAnimationFrame(function(n){
-      return this$.tick(n);
+      return this$.tick(n, id);
     });
   }, ref$.play = function(go){
-    var this$ = this;
     go == null && (go = true);
-    if (!this.started || this.encoding) {
-      return;
+    if (this.host) {
+      if (go) {
+        this.host.play();
+      } else {
+        this.host.pause();
+      }
+      return this;
     }
-    if (go && this.t >= this.duration) {
-      this.t = 0;
-    }
-    this.playing = go;
-    this.last = null;
-    this.seek(this.t);
-    if (go) {
-      return requestAnimationFrame(function(n){
-        return this$.tick(n);
-      });
-    }
+    this._play(go);
+    return this;
   }, ref$.pause = function(){
     return this.play(false);
   }, ref$.toggle = function(){
     return this.play(!this.playing);
+  }, ref$._play = function(go){
+    var was, id, this$ = this;
+    go == null && (go = true);
+    if (!this.started || this.encoding) {
+      return;
+    }
+    go = !!go;
+    if (go && this.speed >= 0 && this.t >= this.duration) {
+      this._seek(0, {
+        jump: true
+      });
+    }
+    if (go && this.speed < 0 && this.t <= 0) {
+      go = false;
+    }
+    was = this.playing;
+    this.playing = go;
+    this.last = null;
+    this._seek(this.t, {
+      jump: true
+    });
+    if (go !== was) {
+      this.fire(go ? 'play' : 'pause');
+    }
+    if (go && !was && !this.host) {
+      id = this.loop = (this.loop || 0) + 1;
+      return requestAnimationFrame(function(n){
+        return this$.tick(n, id);
+      });
+    }
+  }, ref$.rate = function(r){
+    if (!arguments.length) {
+      return this.speed;
+    }
+    if (this.host) {
+      this.host.rate(r);
+      return this;
+    }
+    this._rate(r);
+    return this;
+  }, ref$._rate = function(r){
+    r = +r;
+    if (!isFinite(r) || r === this.speed) {
+      return;
+    }
+    this.speed = r;
+    return this.fire('rate', r);
   }, ref$.fullscreen = function(){
     var d;
     d = document;
@@ -692,7 +871,9 @@
       this$.encoding = false;
       this$.root.classList.remove('lotion-encoding');
       this$.fit();
-      return this$.seek(t0);
+      return this$._seek(t0, {
+        jump: true
+      });
     };
     progress = function(v){
       bar.textContent = Math.round(v * 100) + "%";
@@ -702,7 +883,9 @@
     };
     return encode((ref$ = import$({
       el: this.stage,
-      seek: this.opt.seek,
+      seek: function(t){
+        return this$.opt.seek(t, this$.state);
+      },
       duration: this.duration,
       width: this.width,
       height: this.height
@@ -995,6 +1178,7 @@
     vtt: vtt,
     lang: decideLang,
     t: pick,
+    hit: hit,
     clamp: clamp,
     lerp: lerp,
     ss: ss,
@@ -1021,14 +1205,14 @@
   } else if (typeof window != 'undefined' && window !== null) {
     window.lotion = lotion;
   }
-  function in$(x, xs){
-    var i = -1, l = xs.length >>> 0;
-    while (++i < l) if (x === xs[i]) return true;
-    return false;
-  }
   function import$(obj, src){
     var own = {}.hasOwnProperty;
     for (var key in src) if (own.call(src, key)) obj[key] = src[key];
     return obj;
+  }
+  function in$(x, xs){
+    var i = -1, l = xs.length >>> 0;
+    while (++i < l) if (x === xs[i]) return true;
+    return false;
   }
 }).call(this);

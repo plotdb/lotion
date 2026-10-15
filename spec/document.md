@@ -92,6 +92,9 @@ Free Markdown. These conventions help machines and cost people nothing, but none
    - `note:` anything else.
    The set of labels is open.
 
+For interactive works, describe every interaction: where it is, what the reader can do, and each outcome
+( `note:` or a label of your own ). Readers of the document see only the default state otherwise.
+
 If the player has `chapters` and `captions`, the document should agree with them; the player data is
 authoritative for timing.
 
