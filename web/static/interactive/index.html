@@ -1,0 +1,38 @@
+<!DOCTYPE html><html lang="zh-Hant-TW"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>lotion interactive</title><link rel="preconnect" href="https://fonts.gstatic.com"><link rel="stylesheet" type="text/css" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&amp;family=Noto+Sans+TC:wght@400;500;700&amp;display=swap"><link rel="stylesheet" type="text/css" href="/assets/lib/lotion/dev/index.css"><style type="text/css">body{margin:0;padding:48px 16px;background:#fff;color:#18181a;font-family:Geist,"Noto Sans TC",sans-serif}.wrap{max-width:1024px;margin:0 auto}.wrap .export{display:flex;align-items:center;gap:8px;margin-top:16px;font-size:14px}.wrap .hint{color:#8a877f;font-size:14px}.ix-sky{position:absolute;inset:0}.ix-mtn,.ix-cloud,.ix-btn,.ix-temp,.ix-tip,.ix-ctl{position:absolute;left:0;top:0}.ix-mtn{width:0;height:0;border-style:solid;border-color:transparent transparent #4a5a4f transparent}.ix-cloud{width:260px;height:120px;border-radius:60px;background:#fff;box-shadow:0 8px 30px rgba(0,0,0,0.12)}.ix-btn{padding:18px 36px;border-radius:40px;background:#18181a;color:#fff;font:600 36px "Noto Sans TC",sans-serif}.ix-temp{font:700 96px Geist,"Noto Sans TC",sans-serif;color:#c0392b}.ix-tip{padding:24px 32px;background:rgba(255,255,255,0.92);border-radius:16px;font:500 34px "Noto Sans TC",sans-serif;color:#333;width:560px}.ix-ctl{display:flex;gap:20px;align-items:center;font:500 32px "Noto Sans TC",sans-serif}.ix-ctl input{width:300px;height:40px}.ix-ctl .ix-btn{position:static;font-size:30px;padding:12px 28px}.ix-hint{position:absolute;left:0;top:0;font:500 40px "Noto Sans TC",sans-serif;color:#18181a}</style><script class="lotion-doc" type="text/markdown" lang="zh">---
+lotion: 1
+title: 推雲過山
+summary: lotion 互動示範：按鈕、拖動、滑桿、倒轉與慢動作。
+lang: zh-TW
+kind: linear
+duration: 12
+---
+
+## 推雲 {t=0-5}
+
+- show: 雲從左邊飄向山。1–4 秒出現「叮」按鈕，點了發出一聲提示音，不影響播放。
+- note: 5 秒時停下，等讀者把雲拖過山頂；拖過去後自動繼續播放。
+
+## 下沉 {t=5-12}
+
+- show: 雲翻過山往右下沉，右下角顯示山後的溫度。
+- note: 右上的滑桿調整山高 ( 1000–3000 公尺 )，溫度依山高改變：山後溫度 = 20 + 山高 × 0.4 °C/100 m。
+- note: 「倒轉」從目前位置倒著播回開頭，「慢動作」切換 0.5 倍速。長按山會顯示說明。</script><script class="lotion-doc" type="text/markdown" lang="en">---
+lotion: 1
+title: Push the cloud over the mountain
+summary: A lotion interaction demo: a button, dragging, a slider, rewind and slow motion.
+lang: en
+kind: linear
+duration: 12
+---
+
+## Push {t=0-5}
+
+- show: a cloud drifts toward the mountain. From 1 to 4 s a "ding" button plays a short tone without touching playback.
+- note: at 5 s it stops until the reader drags the cloud over the peak, then plays on.
+
+## Descend {t=5-12}
+
+- show: the cloud sinks down the far side; the temperature behind the mountain shows at the bottom right.
+- note: the slider sets the mountain height ( 1000 - 3000 m ); temperature behind = 20 + height × 0.4 °C / 100 m.
+- note: "Rewind" plays backward to the start, "Slow" toggles half speed. Long-press the mountain for a note.</script></head><body><div class="wrap"><h1>lotion interactive</h1><p>互動作品的示範：畫面是 <code>seek(t, state)</code>，狀態由讀者的操作改變。
+<a href="?lang=en">English</a> · <a href="?lang=zh">中文</a></p><div class="demo" id="demo"></div><p class="hint">點畫面空白處播放 / 暫停；按鈕、雲、滑桿、山是可互動元素 ( <code>.lotion-hit</code> )，點它們不會切換播放。</p><p class="hint log"></p></div><script type="text/javascript" src="/assets/lib/lotion/dev/index.js"></script><script type="text/javascript">(function(){var e,o,a,u,n,l,s,c,t,d,r,i,h,f,p,g,v,m,x,y,w,z,L,T,E,k,b,C,S,R,q,A,D,M;e=lotion.mk,o=lotion.put,a=lotion.txt,u=lotion.lerp,n=lotion.clamp,l=lotion.ss,s=lotion.vis,c=lotion.t,t=lotion.hit;lotion.lang(["zh","en"]);d=new lotion.player({root:"#demo",duration:12,interactive:true,state:{h:2e3,crossed:false,drag:null},chapters:[[0,c({zh:"推雲",en:"Push"})],[5,c({zh:"下沉",en:"Descend"})]],seek:function(e,t){return E(e,t)}});r=d.stage;i=e("ix-sky","",r);i.style.background="linear-gradient(#cfe0ea, #ecf1ee)";h=e("ix-mtn","",r);f=t(e("ix-cloud","",r));p=t(e("ix-btn",c({zh:"叮",en:"Ding"}),r));g=e("ix-hint",c({zh:"把雲拖過山頂 →",en:"Drag the cloud over the peak →"}),r);v=e("ix-temp","",r);m=e("ix-tip",c({zh:"山越高，空氣上升時降溫越多，凝結放熱也越多，下沉到山後就越熱。",en:"The higher the mountain, the more heat the rising air releases as it condenses, so it lands warmer."}),r);x=e("ix-ctl","",r);x.innerHTML="<span>"+c({zh:"山高",en:"Height"})+"</span><input type='range' min='1000' max='3000' step='100'>";y=t(x.querySelector("input"));w=t(e("ix-btn",c({zh:"倒轉",en:"Rewind"}),x));z=t(e("ix-btn",c({zh:"慢動作",en:"Slow"}),x));L=function(e){return 980-e.h*.25};T=function(e,t){var n;if(e<5){return u(160,520,l(e/5))}else if(t.crossed){return u(1040,1560,l((e-5)/6))}else{return(n=t.drag)!=null?n:520}};E=function(e,t){var n,r,i;n=t.h*.25;h.style.borderWidth="0 420px "+n+"px 420px";o(h,540,980-n);r=T(e,t);i=e>=5&&t.crossed?u(L(t)-140,760,l((e-5)/6)):L(t)-140;o(f,r,i);o(p,160,140,1,s(e,1,4,.2,.2));o(g,620,160,1,e>=4.99&&!t.crossed?1:0);o(v,1440,860,1,s(e,7));a(v,(20+t.h*.004).toFixed(1)+" °C");o(x,1060,50);if(y.value!==t.h+""){y.value=t.h}return a(z,d.rate()===.5?c({zh:"正常速度",en:"Normal"}):c({zh:"慢動作",en:"Slow"}))};d.at(5,function(e){var t;t=e.dir;if(t>0&&!d.state.crossed){return d.pause()}});k=null;p.addEventListener("click",function(){var e,t;k==null&&(k=new AudioContext);e=k.createOscillator();t=k.createGain();e.frequency.value=880;t.gain.setValueAtTime(.3,k.currentTime);t.gain.exponentialRampToValueAtTime(.001,k.currentTime+.6);e.connect(t).connect(k.destination);e.start();return e.stop(k.currentTime+.6)});b=null;C=function(e){return(e.clientX-r.getBoundingClientRect().left)*d.width/r.getBoundingClientRect().width};f.addEventListener("pointerdown",function(e){if(d.t<4.99||d.state.crossed){return}f.setPointerCapture(e.pointerId);return b={x0:C(e),c0:T(d.t,d.state)}});f.addEventListener("pointermove",function(e){var t;if(!b){return}t=n(b.c0+C(e)-b.x0,160,1100);if(t>1e3){b=null;d.set({crossed:true,drag:null});return d.play()}else{return d.set("drag",t)}});f.addEventListener("pointerup",function(){return b=null});y.addEventListener("input",function(){return d.set("h",+y.value)});w.addEventListener("click",function(){d.rate(-Math.abs(d.rate()));return d.play()});z.addEventListener("click",function(){return d.rate(Math.abs(d.rate())===.5?1:.5)});d.on("rate",function(){return d.redraw()});d.on("pause",function(){if(d.t<=0&&d.rate()<0){return d.rate(1)}});t(h);S=null;o(m,1060,300,1,0);h.addEventListener("pointerdown",function(){return S=setTimeout(function(){return o(m,1060,300,1,1)},500)});for(R=0,A=(q=["pointerup","pointerleave","pointercancel"]).length;R<A;++R){D=q[R];h.addEventListener(D,B)}M=document.querySelector(".log");for(R=0,A=(q=["state","rate","play","pause"]).length;R<A;++R){D=q[R];H.call(this,D)}return document.fonts.ready.then(function(){return d.start()});function B(){clearTimeout(S);return o(m,1060,300,1,0)}function H(t){d.on(t,function(e){if(M){return M.textContent=t+" "+(t==="state"?JSON.stringify(e):e!=null?e:"")}})}})();</script></body></html>

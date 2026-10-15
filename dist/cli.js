@@ -104,6 +104,10 @@ open = function(src, opt){
     if (opt.lang) {
       u += "&lang=" + encodeURIComponent(opt.lang);
     }
+    if (opt.state) {
+      JSON.parse(opt.state);
+      u += "&state=" + encodeURIComponent(opt.state);
+    }
     return chromium.launch().then(function(browser){
       return browser.newPage({
         viewport: {

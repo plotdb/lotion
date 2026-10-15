@@ -24,6 +24,7 @@
 #   --query a=1&b                附加到網址的參數
 #   --lang xx                    以該語系輸出 ( 網址帶 ?lang=xx ). video / captions 只輸出該語系的字幕.
 #                                all: 每個語系 ( window.LANGS ) 各輸出一份, 檔名加上語系, 如 out.en.mp4
+#   --state '{"temp":30}'        互動作品以此狀態輸出 ( 網址帶 ?state=<JSON>, 合併進 player 的 state 初始值 )
 #   --block-root /block --lib-root /assets/lib   bundle 時的 registry 位置 ( 相對於 base-url )
 
 require! <[fs path http child_process]>
@@ -86,6 +87,7 @@ open = (src, opt) ->
     [u, h] = srv.url.split '#'
     u += (if /\?/.test(u) => '&' else '?') + 'render' + (if opt.query => "&#{opt.query}" else '')
     if opt.lang => u += "&lang=#{encodeURIComponent opt.lang}"
+    if opt.state => JSON.parse(opt.state); u += "&state=#{encodeURIComponent opt.state}"
     chromium.launch!then (browser) ->
       browser.newPage({viewport: {width: +(opt.width or 1920), height: +(opt.height or 1080)}, deviceScaleFactor: 1})
         .then (page) ->

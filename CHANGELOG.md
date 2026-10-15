@@ -1,3 +1,20 @@
+## v0.9.0
+
+ - interaction: a work can be interactive. The frame is `seek(t, state)`; player options `interactive` and `state`.
+   `player.state`, `set(key, value)` / `set({...})` ( merge, redraw at once, fire `state` ), `reset()`, `redraw()`.
+   Interactive elements take the class `lotion-hit` ( `lotion.hit(el)` ): clicks on them do not toggle playback, and the
+   css stops scrolling, selection and the long-press menu on them.
+ - player: `rate(r)`: fractional, or negative to play backward ( stops at 0 ); playback follows it. `at(t, fn)` calls
+   `fn({t, dir})` when playback passes `t` ( jumps do not count; rules in README > Interaction ) and returns a canceller.
+   `emit(name, data)` for custom events; new events `play`, `pause`, `rate`, `state`, `emit`.
+ - player: `host = {play, pause, seek, rate}` hands the work's playback requests to an embedding page that owns the
+   clock; it drives the player through `player.drive` ( `play`, `pause`, `seek(t, {jump})`, `rate` ). With a host,
+   `?render` keeps interaction and `at` callbacks.
+ - render protocol: `?state=<JSON>` merges into the initial state, `window.STATE`. Without a host, `?render` runs no
+   `at` callbacks. cli: `--state '<json>'`.
+ - demo: `web/src/pug/interactive` ( button, drag, slider, rewind, slow motion, long press, two languages ).
+
+
 ## v0.8.0
 
  - languages: a work can declare the languages it supports and pick its text and assets by the current one, decided

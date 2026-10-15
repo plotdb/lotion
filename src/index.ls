@@ -119,13 +119,20 @@ pick = (v) ->
   k = if cur? => (match-lang(cur, keys) ? match-lang(langs.0, keys)) else match-lang(url-lang!, keys)
   v[k ? keys.0]
 
+# ---------- 互動 ----------
+# at() 的「經過」: 相鄰兩次前進超過這個秒數視為跳轉 ( 外層逐格驅動時, 分頁在背景會一次跳很多 )
+MAX_STEP = 1
+clone-state = (s) -> if s => JSON.parse(JSON.stringify s) else {}
+# 標記可互動元素: 點擊、拖動、長按交給作品, 不觸發播放器的播放 / 暫停
+hit = (el) -> el.classList.add \lotion-hit; el
+
 # ---------- 播放器 ----------
 # 把 seek(t) 包成可播放 / 拖曳 / 全螢幕的元件, 並提供逐格輸出用的 render 協定.
 #  opt:
 #   - root: 容器元素或 selector. 播放器會在其中建立 stage 與控制列.
 #   - width / height: 舞台的設計尺寸, 預設 1920 x 1080. 舞台會等比縮放以填入容器.
 #   - duration: 總長 ( 秒 )
-#   - seek: (t) -> 依 t 更新畫面
+#   - seek: (t, state) -> 依 t 與狀態更新畫面. state 即 p.state ( 互動作品的狀態, 見 state )
 #   - chapters: [[t, name, meta?], ...] 選用. 顯示於時間軸, 並供 ← / → 跳段. meta 為選填物件
 #     ( 如 {description, thumb} ), 播放器不使用, 原樣放在 p.chapter 中供外層取用.
 #   - captions: 字幕 [[t0, t1, text, meta?], ...] ( meta 如 {speaker} ), 或多語言 {zh: [...], en: [...]}.
@@ -143,6 +150,9 @@ pick = (v) ->
 #   - start: 初始時間 ( 從中間開始看 ). 網址的 ?t=秒數 優先. 要一打開就看到標題畫面請用 cover, 不要用 start.
 #   - autoplay: 預設 false
 #   - cues: 選用, -> [{t, name, ...}] 給 cli 匯出音效時間點
+#   - interactive: 宣告作品有互動 ( 外層據此把點擊交給作品 ). 可互動的元素加上 class lotion-hit ( lotion.hit(el) ).
+#   - state: 狀態的初始值 ( 可 JSON 序列化的物件 ), 也是逐格輸出用的值. 網址 ?state=<JSON> 會合併進去.
+#     p.set(k, v) / p.set({...}) 改變狀態並以目前的 t 重畫, p.reset() 回到初始值.
 #   - loading: start() 之前顯示的載入畫面. 預設 true ( 內建 spinner ); 字串為自訂 html; false 不顯示
 #  建構時只建立 dom ( stage 可由 .stage 取得 ); 畫面內容建好後呼叫 start(). .ready 為 start() 時 resolve 的 promise.
 #  start() 之前舞台隱藏並顯示載入畫面, 控制列不作用: 內容常需非同步準備 ( 字型、依版面量測位置 ),
@@ -165,6 +175,23 @@ player = (opt = {}) ->
     playing: false
     last: null
     started: false
+    # 播放速率 ( 負數為倒播 ) 與 at() 登記的時間點
+    speed: 1
+    marks: []
+    # 外層 ( 如書架 ) 掌握時鐘時設定 {play, pause, seek, rate}: 作品與控制列的播放要求改交給它
+    host: null
+    interactive: !!opt.interactive
+  # 狀態: reset() 回到 opt.state; 網址 ?state=<JSON> 合併進目前狀態
+  @state = clone-state opt.state
+  if m = /[?&]state=([^&#]*)/.exec location.search
+    try @state <<< JSON.parse(decodeURIComponent m.1)
+    catch e => console.warn "[lotion] ?state is not valid JSON: #{e.message}"
+  # 外層驅動用的方法: 不經 host, 直接改變播放器 ( 見 README > Host )
+  @drive =
+    play: (go = true) ~> @_play go
+    pause: ~> @_play false
+    seek: (t, o) ~> @_seek t, o
+    rate: (r) ~> @_rate r
   # start() 時 resolve: 供外部 ( 如 block loader ) 等待內容就緒
   @ready = new Promise (res) ~> @ready-res = res
   @render-mode = /[?&]render\b/.test location.search
@@ -189,6 +216,7 @@ player.prototype = Object.create(Object.prototype) <<<
   init: ->
     r = @root
     r.classList.add \lotion
+    if @interactive => r.classList.add \lotion-interactive
     # 宣告語系時標上 lang, 讓字型選擇、斷行與輔助工具依語言處理
     if @lang? => r.setAttribute \lang, @lang
     if !r.hasAttribute(\tabindex) => r.setAttribute \tabindex, 0
@@ -236,7 +264,8 @@ player.prototype = Object.create(Object.prototype) <<<
     @root.classList.remove \lotion-loading
     if @loading => @loading.remove!
     if @render-mode
-      window.seek = (t) ~> @opt.seek t
+      window.seek = (t) ~> @opt.seek t, @state
+      if @interactive or @opt.state => window.STATE = @state
       window.DURATION = @duration
       if @opt.cues => window.cues = @opt.cues
       # cli 依此輸出 .vtt
@@ -248,7 +277,7 @@ player.prototype = Object.create(Object.prototype) <<<
       if @chapters.length => window.CHAPTERS = @chapters
     @ready-res @
     m = /[?&]t=([\d.]+)/.exec location.search
-    @seek(if m => +m.1 else if @render-mode => 0 else (@opt.start or 0))
+    @_seek(if m => +m.1 else if @render-mode => 0 else (@opt.start or 0))
     if @opt.autoplay and !@render-mode => document.fonts.ready.then ~> @play true
     @
 
@@ -266,7 +295,11 @@ player.prototype = Object.create(Object.prototype) <<<
     @el.play.addEventListener \click, (e) ~> e.stopPropagation!; @toggle!
     @el.fs.addEventListener \click, (e) ~> e.stopPropagation!; @fullscreen!
     @el.cc.addEventListener \click, (e) ~> e.stopPropagation!; @show-captions !@captions-on
-    @viewport.addEventListener \click, ~> @root.focus!; @toggle!
+    # 點在可互動元素 ( .lotion-hit ) 上的交給作品, 不切換播放
+    @viewport.addEventListener \click, (e) ~>
+      @root.focus!
+      if e.target.closest and e.target.closest('.lotion-hit') => return
+      @toggle!
     dragging = false
     from-event = (e) ~>
       b = @el.track.getBoundingClientRect!
@@ -296,11 +329,19 @@ player.prototype = Object.create(Object.prototype) <<<
 
   fmt: (t) -> "#{Math.floor(t / 60)}:#{"0#{Math.floor(t % 60)}".slice(-2)}"
 
-  # start() 之前內容尚未就緒, encode() 期間畫面由匯出控制: 都不呼叫 opt.seek, 也不播放
+  # 跳到 t. 設了 host 時改交給 host
   seek: (t) ->
+    if @host => @host.seek t; return @
+    @_seek t, {jump: true}
+    @
+
+  # start() 之前內容尚未就緒, encode() 期間畫面由匯出控制: 都不呼叫 opt.seek, 也不播放.
+  # o.jump: 跳轉 ( 拖曳、程式跳時間 ), 不算「經過」at() 的時間點. 播放中逐格前進時不帶
+  _seek: (t, o = {}) ->
     if !@started or @encoding => return
+    prev = @t
     @t = t = clamp t, 0, @duration
-    @opt.seek @frame-t(t)
+    @opt.seek @frame-t(t), @state
     p = "#{100 * t / @duration}%"
     @el.fill.style.width = p
     @el.knob.style.left = p
@@ -314,6 +355,46 @@ player.prototype = Object.create(Object.prototype) <<<
       @fire \chapter, @chapter
     @update-caption!
     @fire \time, t
+    if !o.jump => @pass prev, t
+
+  # 播放經過的時間點: 播放中、方向與速率相同、一步不超過 MAX_STEP 秒, 才算連續經過 ( 見 README > Interaction )
+  # 前進經過 T: prev < T <= t; 倒播: t <= T < prev. 沒有 host 的 ?render ( 逐格輸出 ) 不執行
+  pass: (a, b) ->
+    if !@playing or !@marks.length or a == b or (@render-mode and !@host) => return
+    d = b - a
+    if Math.abs(d) > MAX_STEP or (@speed != 0 and (d > 0) != (@speed > 0)) => return
+    dir = if d > 0 => 1 else -1
+    due = @marks.filter (m) -> if dir > 0 => a < m.t and m.t <= b else b <= m.t and m.t < a
+    due.sort (x, y) -> dir * (x.t - y.t)
+    # 前一個回呼可能取消了後面的時間點
+    for m in due when m.fn in @marks.map((x) -> x.fn) => m.fn {t: m.t, dir}
+
+  # 播放經過 t 時呼叫 fn({t, dir}). 回傳取消函式
+  at: (t, fn) ->
+    m = {t, fn}
+    @marks.push m
+    ~> @marks = @marks.filter (x) -> x != m
+
+  # 以目前的 t 重畫 ( 狀態改變時 ), 暫停中也重畫
+  redraw: -> if @started and !@encoding => @opt.seek @frame-t(@t), @state
+
+  # 改變狀態: set(key, value) 或 set({...}), 合併後重畫, 送出 state 事件
+  set: (k, v) ->
+    if k and typeof(k) == \object => @state <<< k else @state[k] = v
+    @redraw!
+    @fire \state, @state
+    @
+  reset: ->
+    @state = clone-state @opt.state
+    @redraw!
+    @fire \state, @state
+    @
+
+  # 自訂事件, 如 emit('quiz', {correct: true}). 也送出 emit 事件 {name, data} 供外層一併轉送
+  emit: (name, data) ->
+    @fire name, data
+    @fire \emit, {name, data}
+    @
 
   # 時間 t 時舞台要畫的那一幅: 停在 0 秒而且沒在播放時是標題畫面 ( opt.cover ), 其餘就是 t
   frame-t: (t) ->
@@ -354,23 +435,49 @@ player.prototype = Object.create(Object.prototype) <<<
     @
   fire: (name, v) -> for h in (@handlers[name] or []).slice! => h v
 
-  tick: (now) ->
-    if !@playing => return
-    if @last? => @seek @t + (now - @last) / 1000
+  # 播放器自己的時鐘 ( 沒有 host 時 ). 依速率前進, 正向到尾、倒播到 0 時停止
+  tick: (now, id) ->
+    if !@playing or @host or id != @loop => return
+    if @last? => @_seek @t + @speed * (now - @last) / 1000
     @last = now
-    if @t >= @duration => @playing = false; @seek @t; return
-    requestAnimationFrame (n) ~> @tick n
+    if !@playing or id != @loop => return
+    if (@speed > 0 and @t >= @duration) or (@speed < 0 and @t <= 0) => @_play false; return
+    requestAnimationFrame (n) ~> @tick n, id
 
+  # 播放 / 暫停. 設了 host 時改交給 host
   play: (go = true) ->
-    if !@started or @encoding => return
-    if go and @t >= @duration => @t = 0
-    @playing = go
-    @last = null
-    @seek @t
-    if go => requestAnimationFrame (n) ~> @tick n
-
+    if @host => (if go => @host.play! else @host.pause!); return @
+    @_play go
+    @
   pause: -> @play false
   toggle: -> @play !@playing
+
+  # 實際改變播放狀態. 有 host 時不啟動自己的時鐘 ( 由外層逐格 drive.seek ), 只標記播放中
+  _play: (go = true) ->
+    if !@started or @encoding => return
+    go = !!go
+    if go and @speed >= 0 and @t >= @duration => @_seek 0, {jump: true}
+    if go and @speed < 0 and @t <= 0 => go = false
+    was = @playing
+    @playing = go
+    @last = null
+    @_seek @t, {jump: true}
+    if go != was => @fire (if go => \play else \pause)
+    if go and !was and !@host
+      id = @loop = (@loop or 0) + 1
+      requestAnimationFrame (n) ~> @tick n, id
+
+  # 播放速率: 小數為慢 / 快動作, 負數為倒播. 不帶參數時回傳目前速率. 設了 host 時改交給 host
+  rate: (r) ->
+    if !arguments.length => return @speed
+    if @host => @host.rate r; return @
+    @_rate r
+    @
+  _rate: (r) ->
+    r = +r
+    if !isFinite(r) or r == @speed => return
+    @speed = r
+    @fire \rate, r
 
   fullscreen: ->
     d = document
@@ -400,11 +507,11 @@ player.prototype = Object.create(Object.prototype) <<<
       @encoding = false
       @root.classList.remove \lotion-encoding
       @fit!
-      @seek t0
+      @_seek t0, {jump: true}
     progress = (v) ->
       bar.textContent = "#{Math.round(v * 100)}%"
       if opt.progress => opt.progress v
-    encode({el: @stage, seek: @opt.seek, duration: @duration, width: @width, height: @height} <<< opt <<< {progress})
+    encode({el: @stage, seek: ((t) ~> @opt.seek t, @state), duration: @duration, width: @width, height: @height} <<< opt <<< {progress})
       .then (b) -> done!; b
       .catch (e) -> done!; throw e
 
@@ -554,7 +661,7 @@ doc =
     out.join('\n')
 
 lotion = {
-  doc, vtt, lang: decide-lang, t: pick, clamp, lerp, ss, spring, presets, track, vis, bump, typing
+  doc, vtt, lang: decide-lang, t: pick, hit, clamp, lerp, ss, spring, presets, track, vis, bump, typing
   hex, mixc, rgb, mk, put, txt, svg, player, encode, libs, lib
 }
 
