@@ -1,4 +1,4 @@
-## v0.10.1 ( unreleased )
+## v0.10.1
 
  - control bar: the progress bar now spans the full width of the player, on the line between the stage and the bar
    ( thin, thicker with the knob on hover or while dragging; chapter ticks cut the line ). The chapter name moves to
