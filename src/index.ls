@@ -233,16 +233,17 @@ player.prototype = Object.create(Object.prototype) <<<
       html = if typeof(@opt.loading) == \string => @opt.loading else '<div class="lotion-spinner"></div>'
       @loading = mk \lotion-loading-screen, html, @viewport
     @bar = mk \lotion-bar, '''
-      <div class="lotion-btn lotion-play"></div>
       <div class="lotion-track"><div class="lotion-rail"></div><div class="lotion-fill"></div>
       <div class="lotion-chapters"></div><div class="lotion-knob"></div></div>
+      <div class="lotion-btn lotion-play"></div>
       <div class="lotion-time"></div>
+      <div class="lotion-chapter"></div>
       <div class="lotion-btn lotion-cc" title="字幕 ( c )">CC</div>
       <div class="lotion-btn lotion-fs" title="全螢幕"><svg width="16" height="16" viewBox="0 0 16 16" fill="none"
       stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M2 6V2h4M10 2h4v4M14 10v4h-4M6 14H2v-4"/></svg></div>
     ''', r
     q = (n) ~> @bar.querySelector ".lotion-#n"
-    @el = {play: q(\play), fill: q(\fill), knob: q(\knob), time: q(\time), track: q(\track), chapters: q(\chapters), fs: q(\fs), cc: q(\cc)}
+    @el = {play: q(\play), fill: q(\fill), knob: q(\knob), time: q(\time), chapter: q(\chapter), track: q(\track), chapters: q(\chapters), fs: q(\fs), cc: q(\cc)}
     @chapters.map ([t, name, meta]) ~>
       e = mk \lotion-ch, '', @el.chapters
       e.title = name + (if meta and meta.description => "\n#{meta.description}" else '')
@@ -308,12 +309,14 @@ player.prototype = Object.create(Object.prototype) <<<
     from-event = (e) ~>
       b = @el.track.getBoundingClientRect!
       @seek @duration * clamp((e.clientX - b.left) / b.width)
+    drag = (v) ~> dragging := v; @root.classList.toggle \lotion-dragging, v
     @el.track.addEventListener \pointerdown, (e) ~>
-      dragging := true
+      drag true
       @el.track.setPointerCapture e.pointerId
       from-event e
     @el.track.addEventListener \pointermove, (e) ~> if dragging => from-event e
-    @el.track.addEventListener \pointerup, ~> dragging := false
+    @el.track.addEventListener \pointerup, ~> drag false
+    @el.track.addEventListener \pointercancel, ~> drag false
     # 鍵盤只在播放器取得焦點時作用, 以免干擾頁面捲動
     @root.addEventListener \keydown, (e) ~>
       starts = @chapters.map (c) -> c.0
@@ -352,7 +355,8 @@ player.prototype = Object.create(Object.prototype) <<<
     ci = -1
     for c, i in @chapters when c.0 <= t => ci = i
     ch = @chapters[ci]
-    @el.time.textContent = (if ch => "#{ch.1} · " else '') + "#{@fmt t} / #{@fmt @duration}"
+    @el.time.textContent = "#{@fmt t} / #{@fmt @duration}"
+    @el.chapter.textContent = @el.chapter.title = if ch => ch.1 else ''
     @root.classList.toggle \lotion-playing, @playing
     if (if ch => ci else -1) != (if @chapter => @chapter.index else -1)
       @chapter = if ch => {index: ci, t: ch.0, name: ch.1, meta: ch.2 or null} else null
