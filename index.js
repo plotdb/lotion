@@ -361,7 +361,7 @@
       html = typeof this.opt.loading === 'string' ? this.opt.loading : '<div class="lotion-spinner"></div>';
       this.loading = mk('lotion-loading-screen', html, this.viewport);
     }
-    this.bar = mk('lotion-bar', '<div class="lotion-btn lotion-play"></div>\n<div class="lotion-track"><div class="lotion-rail"></div><div class="lotion-fill"></div>\n<div class="lotion-chapters"></div><div class="lotion-knob"></div></div>\n<div class="lotion-time"></div>\n<div class="lotion-btn lotion-cc" title="字幕 ( c )">CC</div>\n<div class="lotion-btn lotion-fs" title="全螢幕"><svg width="16" height="16" viewBox="0 0 16 16" fill="none"\nstroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M2 6V2h4M10 2h4v4M14 10v4h-4M6 14H2v-4"/></svg></div>', r);
+    this.bar = mk('lotion-bar', '<div class="lotion-track"><div class="lotion-rail"></div><div class="lotion-fill"></div>\n<div class="lotion-chapters"></div><div class="lotion-knob"></div></div>\n<div class="lotion-btn lotion-play"></div>\n<div class="lotion-time"></div>\n<div class="lotion-chapter"></div>\n<div class="lotion-btn lotion-cc" title="字幕 ( c )">CC</div>\n<div class="lotion-btn lotion-fs" title="全螢幕"><svg width="16" height="16" viewBox="0 0 16 16" fill="none"\nstroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M2 6V2h4M10 2h4v4M14 10v4h-4M6 14H2v-4"/></svg></div>', r);
     q = function(n){
       return this$.bar.querySelector(".lotion-" + n);
     };
@@ -370,6 +370,7 @@
       fill: q('fill'),
       knob: q('knob'),
       time: q('time'),
+      chapter: q('chapter'),
       track: q('track'),
       chapters: q('chapters'),
       fs: q('fs'),
@@ -477,7 +478,7 @@
     }
     return ret;
   }, ref$.bind = function(){
-    var dragging, fromEvent, this$ = this;
+    var dragging, fromEvent, drag, this$ = this;
     this.el.play.addEventListener('click', function(e){
       e.stopPropagation();
       return this$.toggle();
@@ -503,8 +504,12 @@
       b = this$.el.track.getBoundingClientRect();
       return this$.seek(this$.duration * clamp((e.clientX - b.left) / b.width));
     };
+    drag = function(v){
+      dragging = v;
+      return this$.root.classList.toggle('lotion-dragging', v);
+    };
     this.el.track.addEventListener('pointerdown', function(e){
-      dragging = true;
+      drag(true);
       this$.el.track.setPointerCapture(e.pointerId);
       return fromEvent(e);
     });
@@ -514,7 +519,10 @@
       }
     });
     this.el.track.addEventListener('pointerup', function(){
-      return dragging = false;
+      return drag(false);
+    });
+    this.el.track.addEventListener('pointercancel', function(){
+      return drag(false);
     });
     return this.root.addEventListener('keydown', function(e){
       var starts, ref$;
@@ -584,7 +592,8 @@
       }
     }
     ch = this.chapters[ci];
-    this.el.time.textContent = (ch ? ch[1] + " · " : '') + (this.fmt(t) + " / " + this.fmt(this.duration));
+    this.el.time.textContent = this.fmt(t) + " / " + this.fmt(this.duration);
+    this.el.chapter.textContent = this.el.chapter.title = ch ? ch[1] : '';
     this.root.classList.toggle('lotion-playing', this.playing);
     if ((ch
       ? ci

@@ -1,3 +1,11 @@
+## v0.10.1
+
+ - control bar: the progress bar now spans the full width of the player, on the line between the stage and the bar
+   ( thin, thicker with the knob on hover or while dragging; chapter ticks cut the line ). The chapter name moves to
+   its own `.lotion-chapter` ( ellipsis when too long ), so long names no longer resize the progress bar.
+   `.lotion-time` shows only the time. `.lotion-bar` keeps its class and holds everything, now 56px tall.
+
+
 ## v0.10.0
 
  - loops, as an authoring tool. player option `loop: true` loops the whole work ( past the end back to 0, backward
