@@ -1,3 +1,20 @@
+## v0.11.0
+
+ - aspects: a work can have several layouts, such as landscape and portrait for phones. `lotion.aspect(aspects,
+   prefer)` declares them, as sizes `{landscape: [1920, 1080], portrait: [1080, 1920]}` or names, and returns the
+   current one: `?aspect=` in the url, else `prefer`, else ( on a page opened on its own ) the one closest to the
+   window's ratio, else the first. `lotion.byAspect({…})` picks a value for the current aspect, like `lotion.t`.
+   Player options `aspects` / `aspect`; the current aspect's size replaces `width` / `height`; `player.aspect`,
+   `player.aspects`, `data-aspect` on the root. The timeline is shared by all aspects.
+ - event `aspectchange` `{aspect, from}` when the window turns closer to another aspect ( own page only ), and
+   `player.reload({aspect, lang, t})` to reload at the current time, keeping the language and an interactive work's
+   state.
+ - render protocol: `window.ASPECT`, `window.ASPECTS` ( sizes ); the block loader sets them from `aspect` /
+   `aspects` too. cli `--aspect xx|all`: `out.<aspect>.<ext>`, `out.<lang>.<aspect>.<ext>` with `--lang all`; the
+   viewport takes the current aspect's size unless `--width` / `--height` are given.
+ - prompt: a section on writing two layouts.
+
+
 ## v0.10.1
 
  - control bar: the progress bar now spans the full width of the player, on the line between the stage and the bar

@@ -1,7 +1,8 @@
 # lotion cli: 以 playwright 開啟動畫頁面, 依 render 協定逐格截圖.
 #  render 協定: 頁面帶 ?render 時須提供 window.seek(t) 與 window.DURATION; 選用 window.cues() 與
 #  window.CAPTIONS ( 字幕 {lang: [[t0, t1, text, meta?], ...]} ), window.DOC ( 文稿 ),
-#  window.LANG / window.LANGS ( 目前語系與作品支援的語言, 網址 ?lang=xx 決定 ).
+#  window.LANG / window.LANGS ( 目前語系與作品支援的語言, 網址 ?lang=xx 決定 ),
+#  window.ASPECT / window.ASPECTS ( 目前版面方向與各方向的尺寸 {name: [w, h]}, 網址 ?aspect=xx 決定 ).
 #  lotion.player 會自動提供; 其它頁面自行設定這兩個值即可.
 #
 #  lotion frames <src> <outdir> <t...>      指定時間點各輸出一張 png
@@ -15,7 +16,7 @@
 #
 #  <src> 可以是 http(s) 網址, 或本地的 html 檔 / 目錄 ( 會以內建的靜態 server 提供 ).
 #  選項:
-#   --width 1920 --height 1080   視窗尺寸
+#   --width 1920 --height 1080   視窗尺寸. 未指定時, 頁面有宣告版面方向 ( window.ASPECTS ) 就用目前方向的尺寸
 #   --fps 60 --sub 1 --shutter 0.5   影片設定. sub > 1 時每格取 sub 個子樣本以 ffmpeg tmix 平均成 motion blur
 #   --workers 1                  video 以 N 個瀏覽器平行渲染 ( 影格切成連續片段, 最後串接, 不重新編碼 )
 #   --from 0 --to <duration>     只輸出一段 ( 秒 )
@@ -24,6 +25,9 @@
 #   --query a=1&b                附加到網址的參數
 #   --lang xx                    以該語系輸出 ( 網址帶 ?lang=xx ). video / captions 只輸出該語系的字幕.
 #                                all: 每個語系 ( window.LANGS ) 各輸出一份, 檔名加上語系, 如 out.en.mp4
+#   --aspect portrait            以該版面方向輸出 ( 網址帶 ?aspect=portrait, 視窗用該方向的尺寸 ).
+#                                all: 每個方向 ( window.ASPECTS ) 各輸出一份, 如 out.portrait.mp4;
+#                                與 --lang all 並用時為 out.<lang>.<aspect>.mp4
 #   --state '{"temp":30}'        互動作品以此狀態輸出 ( 網址帶 ?state=<JSON>, 合併進 player 的 state 初始值 )
 #   --block-root /block --lib-root /assets/lib   bundle 時的 registry 位置 ( 相對於 base-url )
 
@@ -31,7 +35,7 @@ require! <[fs path http child_process]>
 
 usage = '''
   usage:
-    lotion <frames|sheet|video|cues|captions|doc> <src> <out> [t...] [options] [--lang <xx|all>]
+    lotion <frames|sheet|video|cues|captions|doc> <src> <out> [t...] [options] [--lang <xx|all>] [--aspect <xx|all>]
     lotion bundle <base-url> <block-name> <out> [options]
     audio generators ( bgm | sfx | mix | beats ) were removed, see README > Audio
   see README for options.
@@ -87,6 +91,7 @@ open = (src, opt) ->
     [u, h] = srv.url.split '#'
     u += (if /\?/.test(u) => '&' else '?') + 'render' + (if opt.query => "&#{opt.query}" else '')
     if opt.lang => u += "&lang=#{encodeURIComponent opt.lang}"
+    if opt.aspect => u += "&aspect=#{encodeURIComponent opt.aspect}"
     if opt.state => JSON.parse(opt.state); u += "&state=#{encodeURIComponent opt.state}"
     chromium.launch!then (browser) ->
       browser.newPage({viewport: {width: +(opt.width or 1920), height: +(opt.height or 1080)}, deviceScaleFactor: 1})
@@ -95,6 +100,12 @@ open = (src, opt) ->
           page.goto u, {waitUntil: \networkidle}
             .then -> page.waitForFunction (-> typeof(window.seek) == \function and window.DURATION?), null, {timeout: 30000}
             .then -> page.evaluate -> document.fonts.ready.then -> true
+            # 有宣告版面方向且未指定視窗尺寸: 視窗改為目前方向的尺寸, 等播放器依新尺寸排好
+            .then -> page.evaluate -> if window.ASPECTS and window.ASPECT => window.ASPECTS[window.ASPECT] else null
+            .then (sz) ->
+              if !sz or opt.width or opt.height => return
+              page.setViewportSize {width: sz.0, height: sz.1}
+                .then -> page.evaluate -> new Promise (res) -> requestAnimationFrame -> requestAnimationFrame -> res!
             .then -> page.evaluate -> window.DURATION
             .then (duration) ->
               {page, duration, close: -> browser.close!then -> srv.close!}
@@ -218,18 +229,20 @@ match-lang = (want, list) ->
   w = "#want".toLowerCase!
   list.find((l) -> "#l".toLowerCase! == w) ? list.find((l) -> "#l".toLowerCase!split(/[-_]/).0 == w.split(/[-_]/).0)
 
-# --lang all: 先讀頁面的 window.LANGS, 再逐一以 --lang <xx> 執行, 輸出檔名加上語系 ( out.mp4 -> out.en.mp4 )
-for-each-lang = (src, out, opt, run) ->
-  open(src, ({} <<< opt <<< {lang: null})).then ({page, close}) ->
-    page.evaluate(-> window.LANGS or []).then (langs) -> close!then -> langs
-  .then (langs) ->
-    if !langs.length
-      console.error "lotion: the page declares no languages ( window.LANGS ); rendering once"
-      return run out, opt
-    with-lang = (lang) ->
+# --lang all / --aspect all: 先讀頁面宣告的清單, 再逐一以 --<key> <xx> 執行, 輸出檔名加上該值
+# ( out.mp4 -> out.en.mp4; frames / sheet 的目錄則加一層 ). 兩者並用時巢狀執行: out.en.portrait.mp4
+for-each = (key, src, out, opt, run) ->
+  open(src, ({} <<< opt <<< {lang: null, aspect: null})).then ({page, close}) ->
+    page.evaluate(((k) -> if k == \lang => window.LANGS or [] else Object.keys(window.ASPECTS or {})), key)
+      .then (list) -> close!then -> list
+  .then (list) ->
+    if !list.length
+      console.error "lotion: the page declares no #{if key == \lang => 'languages ( window.LANGS )' else 'aspects ( window.ASPECTS )'}; rendering once"
+      return run out, ({} <<< opt <<< {(key): null})
+    with-v = (v) ->
       ext = path.extname out
-      if ext => out.slice(0, -ext.length) + ".#lang#ext" else path.join(out, lang)
-    langs.reduce ((p, lang) -> p.then -> run with-lang(lang), ({} <<< opt <<< {lang})), Promise.resolve!
+      if ext => out.slice(0, -ext.length) + ".#v#ext" else path.join(out, v)
+    list.reduce ((p, v) -> p.then -> run with-v(v), ({} <<< opt <<< {(key): v})), Promise.resolve!
 
 cues = (src, out, opt) ->
   open(src, opt).then ({page, close}) ->
@@ -288,8 +301,11 @@ else
   | \bundle => (if rest.0 => bundle(src, out, rest.0, opt) else null)
   | otherwise => null
   known = cmd in <[frames sheet video cues doc captions bundle]>
+  # --aspect all 包在內層, 檔名順序為 out.<lang>.<aspect>.<ext>
+  run-aspects = if opt.aspect == \all => (o, op) -> for-each \aspect, src, o, op, run else run
   p = if !known or !src or !out => null
-  else if opt.lang == \all and cmd != \bundle => for-each-lang src, out, opt, run
-  else run out, opt
+  else if cmd == \bundle => run out, opt
+  else if opt.lang == \all => for-each \lang, src, out, opt, run-aspects
+  else run-aspects out, opt
   if !p => console.log usage; process.exit 1
   p.catch (e) -> console.error e.message or e; process.exit 1

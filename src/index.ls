@@ -119,6 +119,47 @@ pick = (v) ->
   k = if cur? => (match-lang(cur, keys) ? match-lang(langs.0, keys)) else match-lang(url-lang!, keys)
   v[k ? keys.0]
 
+# ---------- 版面方向 ----------
+# 作品可以有數種版面 ( 如橫式與直式, 給手機直拿的讀者 ), 在載入時決定 ( 換方向 = 重新載入 ), 腳本依此排版.
+# 時間軸、章節、字幕與狀態各方向共用. 決定順序: 網址 ?aspect=xx > 指定的偏好 > 單獨開啟時比例最接近視窗的 > 第一個.
+# aspects 可為附尺寸的對應表 {landscape: [1920, 1080], portrait: [1080, 1920]}, 或只有名稱 ['landscape', 'portrait'].
+# 狀態是頁面層級的, 同語系: lotion.aspect(aspects) 決定一次後, lotion.byAspect 與之後建立的 player 都用它.
+aspect-state = {aspect: null, aspects: [], sizes: {}}
+# 沒有給尺寸時, 常見名稱的比例
+aspect-ratios = {landscape: 16 / 9, portrait: 9 / 16, square: 1}
+url-aspect = ->
+  if typeof(location) == \undefined => return null
+  m = /[?&]aspect=([^&#]*)/.exec location.search
+  if m => decodeURIComponent m.1 else null
+# 單獨開啟 ( 不在 iframe 中, 也不是逐格輸出 ) 才看視窗比例; 放在外層頁面中時由外層以 ?aspect 指定
+standalone = ->
+  if typeof(window) == \undefined or /[?&]render\b/.test(location.search) => return false
+  try window.top == window catch => false
+# 比例最接近視窗的方向 ( 比較比例的對數, 2:1 與 1:2 離 1:1 一樣遠 ). 名稱沒有尺寸也不是常見名稱的不參與
+fit-aspect = (list, sizes) ->
+  vr = window.innerWidth / (window.innerHeight or 1)
+  ratio-of = (a) -> if sizes[a] => sizes[a].0 / sizes[a].1 else aspect-ratios[a]
+  ret = null; gap = Infinity
+  for a in list when (ar = ratio-of a)? and Math.abs(Math.log(vr / ar)) < gap => ret = a; gap = Math.abs(Math.log(vr / ar))
+  ret
+# decide-aspect ( lotion.aspect ) (aspects, prefer): 宣告作品的版面方向並決定目前方向, 回傳之. 不帶參數時回傳目前方向 ( 未宣告為 null )
+decide-aspect = (aspects, prefer) ->
+  if aspects?
+    list = if Array.isArray(aspects) => aspects.slice! else Object.keys(aspects)
+    if list.length
+      aspect-state <<< aspects: list, sizes: (if Array.isArray(aspects) => {} else {} <<< aspects)
+      known = (v) -> if v in list => v else null
+      aspect-state.aspect = known(url-aspect!) ? known(prefer) ? (if standalone! => fit-aspect(list, aspect-state.sizes)) ? list.0
+  aspect-state.aspect
+# by-aspect ( lotion.byAspect ) ({landscape: ..., portrait: ...}): 目前方向的值, 缺的時候退回第一個方向, 再缺則取第一個鍵.
+# 不是物件時原樣回傳. 未宣告方向時取網址 ?aspect 對到的鍵, 否則第一個. 與 lotion.t 各管一軸, 可以巢狀使用
+by-aspect = (v) ->
+  if !v or typeof(v) != \object or Array.isArray(v) => return v
+  keys = Object.keys v
+  cur = aspect-state.aspect ? url-aspect!
+  k = if cur in keys => cur else if aspect-state.aspects.0 in keys => aspect-state.aspects.0 else keys.0
+  v[k]
+
 # ---------- 互動 ----------
 # at() 的「經過」: 相鄰兩次前進超過這個秒數視為跳轉 ( 外層逐格驅動時, 分頁在背景會一次跳很多 )
 MAX_STEP = 1
@@ -141,6 +182,11 @@ hit = (el) -> el.classList.add \lotion-hit; el
 #   - captionLang: 初始語言, 預設為目前語系 ( 有宣告 langs 時 ), 否則第一個.
 #   - langs: 作品支援的語言, 如 ['zh', 'en'], 第一個是預設. lang: 偏好的語言. 決定順序見 lotion.lang;
 #     腳本先呼叫過 lotion.lang(langs) 時可省略. 結果存於 p.lang / p.langs. 未宣告時 p.lang 為 null, 行為不變.
+#   - aspects: 作品的版面方向, 如 {landscape: [1920, 1080], portrait: [1080, 1920]} ( 取代 width / height ),
+#     或只列名稱 ['landscape', 'portrait'] ( 尺寸自行以 lotion.byAspect 給 width / height ). aspect: 偏好的方向.
+#     決定順序見 lotion.aspect; 腳本先呼叫過 lotion.aspect(aspects) 時可省略. 結果存於 p.aspect / p.aspects.
+#     未宣告時 p.aspect 為 null, 行為不變. 單獨開啟時視窗比例改變到更接近別的方向, 送出 aspectchange 事件
+#     {aspect, from}; p.reload({aspect}) 以該方向重新載入並停在同一時間.
 #   - burnCaptions: ?render 模式 ( 逐格輸出 ) 是否畫上字幕, 預設 false. 網址帶 ?render&captions 亦可.
 #   - doc: 作品的文稿 ( Markdown, 實驗性, 格式見 spec/document.md ), 或各語系一份 {zh: '…', en: '…'}.
 #     未給時讀頁面中的 <script type="text/markdown" id="lotion-doc"> 與 class="lotion-doc" 的 script,
@@ -207,6 +253,10 @@ player = (opt = {}) ->
   # 語系: 選項有 langs 時在此決定; 否則沿用腳本先前以 lotion.lang(langs) 決定的. 都沒有時 lang 為 null
   @lang = if opt.langs and opt.langs.length => decide-lang(opt.langs, opt.lang) else lang-state.lang
   @langs = if @lang? => lang-state.langs.slice! else []
+  # 版面方向: 規則同語系. 有尺寸時取代 width / height
+  @aspect = if opt.aspects => decide-aspect(opt.aspects, opt.aspect) else aspect-state.aspect
+  @aspects = if @aspect? => aspect-state.aspects.slice! else []
+  if @aspect? and (sz = aspect-state.sizes[@aspect]) => @ <<< width: sz.0, height: sz.1
   @caption-langs = Object.keys @caption-tracks
   @caption-lang = if opt.captionLang in @caption-langs => opt.captionLang
   else (match-lang(@lang, @caption-langs) ? @caption-langs.0 ? null)
@@ -223,6 +273,7 @@ player.prototype = Object.create(Object.prototype) <<<
     if @interactive => r.classList.add \lotion-interactive
     # 宣告語系時標上 lang, 讓字型選擇、斷行與輔助工具依語言處理
     if @lang? => r.setAttribute \lang, @lang
+    if @aspect? => r.setAttribute \data-aspect, @aspect
     if !r.hasAttribute(\tabindex) => r.setAttribute \tabindex, 0
     @viewport = mk \lotion-viewport, '', r
     @stage = mk \lotion-stage, '', @viewport
@@ -253,6 +304,7 @@ player.prototype = Object.create(Object.prototype) <<<
     if !@caption-langs.length => @el.cc.remove!
     @root.classList.toggle \lotion-captions-on, @captions-on
     @bind!
+    @watch-aspect!
     if @render-mode => r.classList.add \lotion-render
     @fit!
     if typeof(ResizeObserver) != \undefined => new ResizeObserver(~> @fit!).observe @viewport
@@ -279,12 +331,41 @@ player.prototype = Object.create(Object.prototype) <<<
       if @doc => window.DOC = @doc
       if Object.keys(@docs).length > 1 => window.DOCS = @docs
       if @lang? => window.LANG = @lang; window.LANGS = @langs
+      # 各方向的尺寸 {name: [w, h]} ( 沒給尺寸的為 null, 目前方向一定有 ): cli 依此設定視窗大小
+      if @aspect? => window.ASPECT = @aspect; window.ASPECTS = @aspect-sizes!
       if @chapters.length => window.CHAPTERS = @chapters
     @ready-res @
     m = /[?&]t=([\d.]+)/.exec location.search
     @_seek(if m => +m.1 else if @render-mode => 0 else (@opt.start or 0))
     if @opt.autoplay and !@render-mode => document.fonts.ready.then ~> @play true
     @
+
+  # 各方向的尺寸 {name: [w, h] | null}; 目前方向為實際使用的 width / height
+  aspect-sizes: ->
+    ret = {}
+    for a in @aspects => ret[a] = if a == @aspect => [@width, @height] else (aspect-state.sizes[a] or null)
+    ret
+
+  # 單獨開啟時, 視窗比例變得更接近別的方向 ( 如手機轉向 ) 就送出 aspectchange {aspect, from}. 預設不做別的事,
+  # 頁面可在事件中呼叫 p.reload({aspect}). 同一個建議只送一次, 轉回目前方向後重新計算
+  watch-aspect: ->
+    if @aspects.length < 2 or !standalone! => return
+    @suggested = null
+    window.addEventListener \resize, ~>
+      best = fit-aspect @aspects, aspect-state.sizes
+      if !best? or best == @aspect => return @suggested = null
+      if best == @suggested => return
+      @suggested = best
+      @fire \aspectchange, {aspect: best, from: @aspect}
+
+  # 以新的方向 ( 或語系 ) 重新載入頁面, 停在目前時間: o = {aspect, lang, t}. 互動作品一併帶上目前狀態
+  reload: (o = {}) ->
+    q = new URLSearchParams location.search
+    q.set \t, (+(o.t ? @t)).toFixed(2)
+    if (a = o.aspect ? @aspect)? => q.set \aspect, a
+    if (l = o.lang ? @lang)? => q.set \lang, l
+    if @interactive and Object.keys(@state).length => q.set \state, JSON.stringify(@state)
+    location.replace location.pathname + '?' + q.toString! + location.hash
 
   # 所有語系的文稿 {lang: md}; 沒有語系標示的那份鍵為 ''
   read-docs: ->
@@ -708,7 +789,7 @@ doc =
     out.join('\n')
 
 lotion = {
-  doc, vtt, lang: decide-lang, t: pick, hit, clamp, lerp, ss, spring, presets, track, vis, bump, typing
+  doc, vtt, lang: decide-lang, t: pick, aspect: decide-aspect, byAspect: by-aspect, hit, clamp, lerp, ss, spring, presets, track, vis, bump, typing
   hex, mixc, rgb, mk, put, txt, svg, player, encode, libs, lib
 }
 

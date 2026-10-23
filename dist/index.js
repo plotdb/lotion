@@ -1,5 +1,5 @@
 (function(){
-  var PI, sin, cos, exp, sqrt, round, clamp, lerp, ss, spring, presets, track, vis, bump, typing, hex, mixc, rgb, mk, put, txt, NS, svg, langState, matchLang, urlLang, decideLang, pick, MAX_STEP, cloneState, hit, player, ref$, libs, libCache, lib, encode, vttTime, vttParseTime, vtt, doc, lotion;
+  var PI, sin, cos, exp, sqrt, round, clamp, lerp, ss, spring, presets, track, vis, bump, typing, hex, mixc, rgb, mk, put, txt, NS, svg, langState, matchLang, urlLang, decideLang, pick, aspectState, aspectRatios, urlAspect, standalone, fitAspect, decideAspect, byAspect, MAX_STEP, cloneState, hit, player, ref$, libs, libCache, lib, encode, vttTime, vttParseTime, vtt, doc, lotion;
   PI = Math.PI, sin = Math.sin, cos = Math.cos, exp = Math.exp, sqrt = Math.sqrt, round = Math.round;
   clamp = function(v, a, b){
     a == null && (a = 0);
@@ -239,6 +239,106 @@
       ? k
       : keys[0]];
   };
+  aspectState = {
+    aspect: null,
+    aspects: [],
+    sizes: {}
+  };
+  aspectRatios = {
+    landscape: 16 / 9,
+    portrait: 9 / 16,
+    square: 1
+  };
+  urlAspect = function(){
+    var m;
+    if (typeof location === 'undefined') {
+      return null;
+    }
+    m = /[?&]aspect=([^&#]*)/.exec(location.search);
+    if (m) {
+      return decodeURIComponent(m[1]);
+    } else {
+      return null;
+    }
+  };
+  standalone = function(){
+    var e;
+    if (typeof window === 'undefined' || /[?&]render\b/.test(location.search)) {
+      return false;
+    }
+    try {
+      return window.top === window;
+    } catch (e$) {
+      e = e$;
+      return false;
+    }
+  };
+  fitAspect = function(list, sizes){
+    var vr, ratioOf, ret, gap, i$, len$, a, ar;
+    vr = window.innerWidth / (window.innerHeight || 1);
+    ratioOf = function(a){
+      if (sizes[a]) {
+        return sizes[a][0] / sizes[a][1];
+      } else {
+        return aspectRatios[a];
+      }
+    };
+    ret = null;
+    gap = Infinity;
+    for (i$ = 0, len$ = list.length; i$ < len$; ++i$) {
+      a = list[i$];
+      if ((ar = ratioOf(a)) != null && Math.abs(Math.log(vr / ar)) < gap) {
+        ret = a;
+        gap = Math.abs(Math.log(vr / ar));
+      }
+    }
+    return ret;
+  };
+  decideAspect = function(aspects, prefer){
+    var list, known, ref$;
+    if (aspects != null) {
+      list = Array.isArray(aspects)
+        ? aspects.slice()
+        : Object.keys(aspects);
+      if (list.length) {
+        aspectState.aspects = list;
+        aspectState.sizes = Array.isArray(aspects)
+          ? {}
+          : import$({}, aspects);
+        known = function(v){
+          if (in$(v, list)) {
+            return v;
+          } else {
+            return null;
+          }
+        };
+        aspectState.aspect = (ref$ = known(urlAspect())) != null
+          ? ref$
+          : (ref$ = known(prefer)) != null
+            ? ref$
+            : (ref$ = standalone() ? fitAspect(list, aspectState.sizes) : void 8) != null
+              ? ref$
+              : list[0];
+      }
+    }
+    return aspectState.aspect;
+  };
+  byAspect = function(v){
+    var keys, cur, ref$, k;
+    if (!v || typeof v !== 'object' || Array.isArray(v)) {
+      return v;
+    }
+    keys = Object.keys(v);
+    cur = (ref$ = aspectState.aspect) != null
+      ? ref$
+      : urlAspect();
+    k = in$(cur, keys)
+      ? cur
+      : in$(aspectState.aspects[0], keys)
+        ? aspectState.aspects[0]
+        : keys[0];
+    return v[k];
+  };
   MAX_STEP = 1;
   cloneState = function(s){
     if (s) {
@@ -252,7 +352,7 @@
     return el;
   };
   player = function(opt){
-    var m, e, c, tracks, k, v, ref$, this$ = this;
+    var m, e, c, tracks, k, v, sz, ref$, this$ = this;
     opt == null && (opt = {});
     this.opt = opt;
     this.root = typeof opt.root === 'string'
@@ -322,6 +422,16 @@
     this.langs = this.lang != null
       ? langState.langs.slice()
       : [];
+    this.aspect = opt.aspects
+      ? decideAspect(opt.aspects, opt.aspect)
+      : aspectState.aspect;
+    this.aspects = this.aspect != null
+      ? aspectState.aspects.slice()
+      : [];
+    if (this.aspect != null && (sz = aspectState.sizes[this.aspect])) {
+      this.width = sz[0];
+      this.height = sz[1];
+    }
     this.captionLangs = Object.keys(this.captionTracks);
     this.captionLang = in$(opt.captionLang, this.captionLangs)
       ? opt.captionLang
@@ -346,6 +456,9 @@
     }
     if (this.lang != null) {
       r.setAttribute('lang', this.lang);
+    }
+    if (this.aspect != null) {
+      r.setAttribute('data-aspect', this.aspect);
     }
     if (!r.hasAttribute('tabindex')) {
       r.setAttribute('tabindex', 0);
@@ -389,6 +502,7 @@
     }
     this.root.classList.toggle('lotion-captions-on', this.captionsOn);
     this.bind();
+    this.watchAspect();
     if (this.renderMode) {
       r.classList.add('lotion-render');
     }
@@ -441,6 +555,10 @@
         window.LANG = this.lang;
         window.LANGS = this.langs;
       }
+      if (this.aspect != null) {
+        window.ASPECT = this.aspect;
+        window.ASPECTS = this.aspectSizes();
+      }
       if (this.chapters.length) {
         window.CHAPTERS = this.chapters;
       }
@@ -458,6 +576,58 @@
       });
     }
     return this;
+  }, ref$.aspectSizes = function(){
+    var ret, i$, ref$, len$, a;
+    ret = {};
+    for (i$ = 0, len$ = (ref$ = this.aspects).length; i$ < len$; ++i$) {
+      a = ref$[i$];
+      ret[a] = a === this.aspect
+        ? [this.width, this.height]
+        : aspectState.sizes[a] || null;
+    }
+    return ret;
+  }, ref$.watchAspect = function(){
+    var this$ = this;
+    if (this.aspects.length < 2 || !standalone()) {
+      return;
+    }
+    this.suggested = null;
+    return window.addEventListener('resize', function(){
+      var best;
+      best = fitAspect(this$.aspects, aspectState.sizes);
+      if (best == null || best === this$.aspect) {
+        return this$.suggested = null;
+      }
+      if (best === this$.suggested) {
+        return;
+      }
+      this$.suggested = best;
+      return this$.fire('aspectchange', {
+        aspect: best,
+        from: this$.aspect
+      });
+    });
+  }, ref$.reload = function(o){
+    var q, ref$, a, l;
+    o == null && (o = {});
+    q = new URLSearchParams(location.search);
+    q.set('t', (+((ref$ = o.t) != null
+      ? ref$
+      : this.t)).toFixed(2));
+    if ((a = (ref$ = o.aspect) != null
+      ? ref$
+      : this.aspect) != null) {
+      q.set('aspect', a);
+    }
+    if ((l = (ref$ = o.lang) != null
+      ? ref$
+      : this.lang) != null) {
+      q.set('lang', l);
+    }
+    if (this.interactive && Object.keys(this.state).length) {
+      q.set('state', JSON.stringify(this.state));
+    }
+    return location.replace(location.pathname + '?' + q.toString() + location.hash);
   }, ref$.readDocs = function(){
     var d, ret, i$, ref$, len$, e, v, ref1$, k;
     d = this.opt.doc;
@@ -1258,6 +1428,8 @@
     vtt: vtt,
     lang: decideLang,
     t: pick,
+    aspect: decideAspect,
+    byAspect: byAspect,
     hit: hit,
     clamp: clamp,
     lerp: lerp,
