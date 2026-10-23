@@ -83,6 +83,29 @@
  - 每個語言都要用 `lotion sheet <src> <out.png> <t…> --lang all` 檢查，輸出成 `out.zh.png`、`out.en.png`。
 
 
+## 兩套版面 ( 橫式與直式 )
+
+手機直拿時，16:9 的作品只剩中間一條。要給手機讀者，就同時做一套直式版面。
+方向在頁面載入時決定 ( 網址 `?aspect=portrait`，換方向就是重新載入 )，腳本只要依目前方向排版。
+
+ - 一開始先宣告方向與尺寸，第一個是預設：
+   `lotion.aspect({landscape: [1920, 1080], portrait: [1080, 1920]})`，回傳目前方向。
+   player 會自動用目前方向的尺寸，不必再給 `width` / `height`。
+ - 所有座標、尺寸、字級集中在一個版面物件，用 `lotion.byAspect` 取出目前方向的那一份。
+   不要叫它 `L`，常和其他名稱衝突，用 `LY`：
+
+       var LY = lotion.byAspect({
+         landscape: {title: {x: 120, y: 160, size: 96}, body: 48, chart: {x: 1000, y: 200, w: 800}},
+         portrait:  {title: {x: 80, y: 240, size: 88}, body: 48, chart: {x: 80, y: 900, w: 920}}
+       })
+
+ - 直式是重新排版，不是把橫式縮小：並排改成上下排，正文至少 44px，標題 80px 以上。
+ - 時間軸不可依方向改變：時間點、章節、字幕、`at`、狀態都兩邊共用，所以不要把時間放進 `LY`。
+   讀者的筆記與 `&t=` 連結在兩種方向都要對得上。
+ - 文字可以同時依語言和方向不同：`lotion.t` 和 `lotion.byAspect` 可以巢狀使用。
+ - 兩個方向都要檢查：`lotion sheet <src> <out.png> <t…> --aspect all`，輸出成 `out.landscape.png`、`out.portrait.png`。
+
+
 ## 可攜的封裝
 
  - 要放進其它網站時，把動畫包成 `@plotdb/block`：依賴 ( 包含 lotion ) 以 `pkg.dependencies` 宣告，

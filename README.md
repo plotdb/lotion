@@ -157,6 +157,39 @@ with another `?lang=`. So the script only needs to know the current language to 
 Put every visible text through `lotion.t` or `{lang: …}`: text on the stage, chapter names, captions, the document,
 voice and other language-specific assets. A work that declares no languages behaves exactly as before.
 
+### Aspects
+
+A work can also come in several layouts, such as landscape for screens and portrait for phones held upright. Like
+the language, the aspect is decided once, when the page loads; switching means reloading with another `?aspect=`.
+A portrait layout is a new layout, not the landscape one scaled down: side by side becomes top to bottom, text and
+charts get larger. The timeline is shared, so chapters, captions, state and `?t=` links stay valid for every aspect.
+
+    aspect = lotion.aspect {landscape: [1920, 1080], portrait: [1080, 1920]}
+    LY = lotion.byAspect do
+      landscape: {title: {x: 120, y: 160, size: 96}, chart: {x: 1000, y: 200, w: 800}}
+      portrait:  {title: {x: 80, y: 240, size: 88}, chart: {x: 80, y: 900, w: 920}}
+    p = new lotion.player do
+      root: '#demo'
+      duration: 40
+      seek: (t) -> seek t                    # draws with LY.title, LY.chart, ...
+
+ - `lotion.aspect(aspects, prefer)`: declares the aspects and returns the current one. `aspects` is a map of sizes
+   `{name: [width, height]}` ( preferred ), or a list of names, with `width` / `height` given through
+   `lotion.byAspect`. The current aspect is `?aspect=xx` in the url, else `prefer`, else, on a page opened on its
+   own ( not in an iframe, not `?render` ), the one whose ratio is closest to the window, else the first. Names are
+   free; without sizes, `landscape`, `portrait` and `square` count as 16:9, 9:16 and 1:1. Without arguments it
+   returns the current aspect ( `null` if none was declared ). The player options `aspects` / `aspect` do the same.
+ - `lotion.byAspect({landscape: …, portrait: …})`: the value for the current aspect, falling back to the first
+   aspect, then to the first key. It is separate from `lotion.t`, so a value can depend on both: nest them.
+ - with sizes, the current aspect's size replaces `width` / `height`. `player.aspect` and `player.aspects` ( the
+   names ) report the result; the root element gets `data-aspect`.
+ - on a page opened on its own, the player fires `aspectchange` `{aspect, from}` when the window's ratio becomes
+   closer to another aspect ( a phone turned around ). It does nothing else by default;
+   `player.reload({aspect})` reloads the page in that aspect at the current time, keeping the language and an
+   interactive work's state. A host ( such as a shelf ) passes `?aspect=` itself and reloads its iframe.
+
+A work that declares no aspects behaves exactly as before.
+
 ### Interaction
 
 An interactive work is still a function of time, with one more input: the frame is `seek(t, state)`.
@@ -386,6 +419,8 @@ With `?render` in the url, a page should cover the viewport with its stage and e
    state, so a frame can be rendered in any state.
  - `window.LANG`, `window.LANGS`: optional, the current language and the languages the work supports. The url's
    `?lang=xx` selects the language; `window.DOC` follows it, and `window.DOCS` has every language's document.
+ - `window.ASPECT`, `window.ASPECTS`: optional, the current aspect and every aspect's size `{name: [w, h]}` ( `null`
+   for one without a known size ). The url's `?aspect=xx` selects the aspect; the cli sizes its viewport from it.
 
 `lotion.player` does this automatically, and only when `start()` is called: the cli waits for `window.seek` to
 exist before rendering, so it never captures a scene that is still being prepared. Any other page can follow
@@ -433,7 +468,8 @@ targets under the root ( or use `:scope` ). A block sample is in `web/src/pug/bl
 
 options:
 
- - `--width 1920 --height 1080`: viewport size.
+ - `--width 1920 --height 1080`: viewport size. by default, the current aspect's size when the page declares
+   aspects ( `window.ASPECTS` ), else 1920 x 1080.
  - `--fps 60`, `--sub 1`, `--shutter 0.5`: video settings. with `--sub` greater than 1, each frame averages
    `sub` sub-samples spread over `shutter` of the frame interval ( motion blur, via ffmpeg `tmix` ).
  - `--workers 1`: render a video with N browsers in parallel. frames are split into contiguous ranges, each encoded on
@@ -446,6 +482,9 @@ options:
  - `--lang xx`: render in that language ( adds `?lang=xx` ). `video` and `captions` then write only that language's
    captions, as one `.vtt`. `--lang all` renders every language in `window.LANGS`, adding it to the file name:
    `out.zh.mp4`, `out.en.mp4` ( `frames` writes into `<outdir>/<lang>` ).
+ - `--aspect portrait`: render in that aspect ( adds `?aspect=portrait`, sized from `window.ASPECTS` ). `--aspect
+   all` renders every aspect: `out.landscape.mp4`, `out.portrait.mp4`. With `--lang all` too:
+   `out.<lang>.<aspect>.mp4`.
  - `--block-root /block`, `--lib-root /assets/lib`: registry paths for `bundle`, relative to `base-url`.
 
 

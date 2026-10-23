@@ -1,10 +1,10 @@
 #!/usr/bin/env node
-var fs, path, http, child_process, usage, parse, types, serve, playwright, open, shot, frames, sheet, WARM, encode, video, writeVtt, writeDoc, matchLang, forEachLang, cues, bundle, moved, argv, ref$, pos, opt, cmd, src, out, rest, times, run, known, p, slice$ = [].slice;
+var fs, path, http, child_process, usage, parse, types, serve, playwright, open, shot, frames, sheet, WARM, encode, video, writeVtt, writeDoc, matchLang, forEach, cues, bundle, moved, argv, ref$, pos, opt, cmd, src, out, rest, times, run, known, runAspects, p, slice$ = [].slice;
 fs = require('fs');
 path = require('path');
 http = require('http');
 child_process = require('child_process');
-usage = 'usage:\n  lotion <frames|sheet|video|cues|captions|doc> <src> <out> [t...] [options] [--lang <xx|all>]\n  lotion bundle <base-url> <block-name> <out> [options]\n  audio generators ( bgm | sfx | mix | beats ) were removed, see README > Audio\nsee README for options.';
+usage = 'usage:\n  lotion <frames|sheet|video|cues|captions|doc> <src> <out> [t...] [options] [--lang <xx|all>] [--aspect <xx|all>]\n  lotion bundle <base-url> <block-name> <out> [options]\n  audio generators ( bgm | sfx | mix | beats ) were removed, see README > Audio\nsee README for options.';
 parse = function(argv){
   var ref$, pos, opt, i, a;
   ref$ = [[], {}], pos = ref$[0], opt = ref$[1];
@@ -104,6 +104,9 @@ open = function(src, opt){
     if (opt.lang) {
       u += "&lang=" + encodeURIComponent(opt.lang);
     }
+    if (opt.aspect) {
+      u += "&aspect=" + encodeURIComponent(opt.aspect);
+    }
     if (opt.state) {
       JSON.parse(opt.state);
       u += "&state=" + encodeURIComponent(opt.state);
@@ -131,6 +134,32 @@ open = function(src, opt){
           return page.evaluate(function(){
             return document.fonts.ready.then(function(){
               return true;
+            });
+          });
+        }).then(function(){
+          return page.evaluate(function(){
+            if (window.ASPECTS && window.ASPECT) {
+              return window.ASPECTS[window.ASPECT];
+            } else {
+              return null;
+            }
+          });
+        }).then(function(sz){
+          if (!sz || opt.width || opt.height) {
+            return;
+          }
+          return page.setViewportSize({
+            width: sz[0],
+            height: sz[1]
+          }).then(function(){
+            return page.evaluate(function(){
+              return new Promise(function(res){
+                return requestAnimationFrame(function(){
+                  return requestAnimationFrame(function(){
+                    return res();
+                  });
+                });
+              });
             });
           });
         }).then(function(){
@@ -432,37 +461,41 @@ matchLang = function(want, list){
       return (l + "").toLowerCase().split(/[-_]/)[0] === w.split(/[-_]/)[0];
     });
 };
-forEachLang = function(src, out, opt, run){
+forEach = function(key, src, out, opt, run){
   var ref$;
-  return open(src, (ref$ = import$({}, opt), ref$.lang = null, ref$)).then(function(arg$){
+  return open(src, (ref$ = import$({}, opt), ref$.lang = null, ref$.aspect = null, ref$)).then(function(arg$){
     var page, close;
     page = arg$.page, close = arg$.close;
-    return page.evaluate(function(){
-      return window.LANGS || [];
-    }).then(function(langs){
+    return page.evaluate(function(k){
+      if (k === 'lang') {
+        return window.LANGS || [];
+      } else {
+        return Object.keys(window.ASPECTS || {});
+      }
+    }, key).then(function(list){
       return close().then(function(){
-        return langs;
+        return list;
       });
     });
-  }).then(function(langs){
-    var withLang;
-    if (!langs.length) {
-      console.error("lotion: the page declares no languages ( window.LANGS ); rendering once");
-      return run(out, opt);
+  }).then(function(list){
+    var ref$, withV;
+    if (!list.length) {
+      console.error("lotion: the page declares no " + (key === 'lang' ? 'languages ( window.LANGS )' : 'aspects ( window.ASPECTS )') + "; rendering once");
+      return run(out, (ref$ = import$({}, opt), ref$[key] = null, ref$));
     }
-    withLang = function(lang){
+    withV = function(v){
       var ext;
       ext = path.extname(out);
       if (ext) {
-        return out.slice(0, -ext.length) + ("." + lang + ext);
+        return out.slice(0, -ext.length) + ("." + v + ext);
       } else {
-        return path.join(out, lang);
+        return path.join(out, v);
       }
     };
-    return langs.reduce(function(p, lang){
+    return list.reduce(function(p, v){
       return p.then(function(){
         var ref$;
-        return run(withLang(lang), (ref$ = import$({}, opt), ref$.lang = lang, ref$));
+        return run(withV(v), (ref$ = import$({}, opt), ref$[key] = v, ref$));
       });
     }, Promise.resolve());
   });
@@ -592,11 +625,16 @@ if ((ref$ = argv[0]) === 'bgm' || ref$ === 'sfx' || ref$ === 'mix' || ref$ === '
     }
   };
   known = cmd === 'frames' || cmd === 'sheet' || cmd === 'video' || cmd === 'cues' || cmd === 'doc' || cmd === 'captions' || cmd === 'bundle';
+  runAspects = opt.aspect === 'all' ? function(o, op){
+    return forEach('aspect', src, o, op, run);
+  } : run;
   p = !known || !src || !out
     ? null
-    : opt.lang === 'all' && cmd !== 'bundle'
-      ? forEachLang(src, out, opt, run)
-      : run(out, opt);
+    : cmd === 'bundle'
+      ? run(out, opt)
+      : opt.lang === 'all'
+        ? forEach('lang', src, out, opt, runAspects)
+        : runAspects(out, opt);
   if (!p) {
     console.log(usage);
     process.exit(1);
