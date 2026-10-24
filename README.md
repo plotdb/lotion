@@ -52,7 +52,8 @@ player options:
  - `chapters`: optional `[[t, name, meta?], ...]`, shown as ticks on the timeline and used by `←` / `→`. `meta` is
    an optional object ( such as `{description, thumb}` ) the player passes through in `player.chapter`.
  - `captions`: optional `[[t0, t1, text, meta?], ...]` ( `meta` such as `{speaker}` ), or `{zh: [...], en: [...]}`
-   for several languages. See Captions.
+   for several languages. See Captions. A single list's language is `captionLang`, else the page's `<html lang>`,
+   else `und` ( undetermined ); it is the key in `window.CAPTIONS` and `player.captionLangs`.
  - `captionsBurned`: `true` when the scene already shows the narration as text: captions start off. default
    `false` ( captions start on ). Readers can always turn them on or off.
  - `captionLang`: initial caption language. default the current language ( see Languages ), else the first one.

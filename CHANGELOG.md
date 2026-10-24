@@ -1,3 +1,11 @@
+## v0.11.1
+
+ - captions: a single list `[[t0, t1, text], ...]` now takes a language instead of the empty key `''`:
+   `captionLang`, else the page's `<html lang>`, else `und`. It shows in `player.captionLangs`, `player.caption.lang`
+   and `window.CAPTIONS`, so hosts and `.vtt` writers know the language. `lotion.doc.draft` names a single list by
+   its `lang` the same way.
+
+
 ## v0.11.0
 
  - aspects: a work can have several layouts, such as landscape and portrait for phones. `lotion.aspect(aspects,
