@@ -352,7 +352,7 @@
     return el;
   };
   player = function(opt){
-    var m, e, c, tracks, k, v, sz, ref$, this$ = this;
+    var m, e, c, tracks, ref$, k, v, sz, this$ = this;
     opt == null && (opt = {});
     this.opt = opt;
     this.root = typeof opt.root === 'string'
@@ -408,9 +408,7 @@
     c = opt.captions;
     tracks = !c
       ? {}
-      : Array.isArray(c) ? {
-        '': c
-      } : c;
+      : Array.isArray(c) ? (ref$ = {}, ref$[(opt.captionLang || document.documentElement.lang || 'und') + ""] = c, ref$) : c;
     this.captionTracks = {};
     for (k in tracks) {
       v = tracks[k];
@@ -1346,14 +1344,12 @@
   };
   doc = {
     draft: function(opt){
-      var c, tracks, lang, ref$, caps, dur, num, q, fm, chs, parts, out, i$, len$, p, range, says, j$, len1$;
+      var c, tracks, ref$, lang, caps, dur, num, q, fm, chs, parts, out, i$, len$, p, range, says, j$, len1$;
       opt == null && (opt = {});
       c = opt.captions;
       tracks = !c
         ? {}
-        : Array.isArray(c) ? {
-          '': c
-        } : c;
+        : Array.isArray(c) ? (ref$ = {}, ref$[(opt.lang || 'und') + ""] = c, ref$) : c;
       lang = (ref$ = matchLang(opt.lang, Object.keys(tracks))) != null
         ? ref$
         : Object.keys(tracks)[0];
@@ -1373,7 +1369,7 @@
       if (opt.title) {
         fm.push("title: " + q(opt.title));
       }
-      if (opt.lang || lang) {
+      if ((opt.lang || lang) && (opt.lang || lang) !== 'und') {
         fm.push("lang: " + (opt.lang || lang));
       }
       if (dur) {

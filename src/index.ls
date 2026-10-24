@@ -246,8 +246,11 @@ player = (opt = {}) ->
   @ready = new Promise (res) ~> @ready-res = res
   @render-mode = /[?&]render\b/.test location.search
   # 字幕: 一律整理成 {lang: [[t0, t1, text, meta?], ...]}, 依開始時間排序
+  # 只給一個陣列時, 語言依序取 captionLang、<html lang>, 都沒有時為 und ( 未定 )
   c = opt.captions
-  tracks = if !c => {} else if Array.isArray(c) => {'': c} else c
+  tracks = if !c => {} else if Array.isArray(c) =>
+    {"#{opt.captionLang or document.documentElement.lang or \und}": c}
+  else c
   @caption-tracks = {}
   for k, v of tracks => @caption-tracks[k] = v.slice!sort (a, b) -> a.0 - b.0
   # 語系: 選項有 langs 時在此決定; 否則沿用腳本先前以 lotion.lang(langs) 決定的. 都沒有時 lang 為 null
@@ -764,7 +767,7 @@ vtt =
 doc =
   draft: (opt = {}) ->
     c = opt.captions
-    tracks = if !c => {} else if Array.isArray(c) => {'': c} else c
+    tracks = if !c => {} else if Array.isArray(c) => {"#{opt.lang or \und}": c} else c
     lang = match-lang(opt.lang, Object.keys tracks) ? Object.keys(tracks).0
     caps = (if lang? => tracks[lang] else []).slice!sort (a, b) -> a.0 - b.0
     dur = opt.duration
@@ -772,7 +775,7 @@ doc =
     q = (v) -> JSON.stringify "#v"
     fm = ['---', 'lotion: 1']
     if opt.title => fm.push "title: #{q opt.title}"
-    if opt.lang or lang => fm.push "lang: #{opt.lang or lang}"
+    if (opt.lang or lang) and (opt.lang or lang) != \und => fm.push "lang: #{opt.lang or lang}"
     if dur => fm.push 'kind: linear', "duration: #{num dur}"
     fm.push '---', ''
     chs = (opt.chapters or []).slice!sort (a, b) -> a.0 - b.0
