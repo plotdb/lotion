@@ -1,4 +1,4 @@
-## master
+## v0.11.1
 
  - captions: a single list `[[t0, t1, text], ...]` now takes a language instead of the empty key `''`:
    `captionLang`, else the page's `<html lang>`, else `und`. It shows in `player.captionLangs`, `player.caption.lang`
