@@ -6,7 +6,8 @@
    Event `wait` fires on change. Decided the same way with a host. For sound ( sfx 0.0.6 ): works that wait with
    `p.pause()` now keep their `loop: true` music and ambience playing ( ducked timeline ) during the wait instead of
    going silent.
- - `toggle()` now counts as a reader's action; `encode()` pauses as the reader.
+ - `toggle()` now counts as a reader's action ( still through `play()`, so plugins hooking `play`, like sfx 0.0.5, keep
+   working ); `encode()` pauses as the reader.
 
 
 ## v0.11.1

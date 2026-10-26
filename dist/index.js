@@ -998,12 +998,26 @@
       return b - (a - nt) % len;
     }
   }, ref$.play = function(go){
+    var reader;
     go == null && (go = true);
-    return this.request(go, false);
+    reader = !!this.byReader;
+    this.byReader = false;
+    return this.request(go, reader);
   }, ref$.pause = function(){
-    return this.request(false, false);
+    return this.play(false);
   }, ref$.toggle = function(){
-    return this.request(!this.playing, true);
+    var this$ = this;
+    return this.asReader(function(){
+      return this$.play(!this$.playing);
+    });
+  }, ref$.asReader = function(f){
+    this.byReader = true;
+    try {
+      f();
+    } finally {
+      this.byReader = false;
+    }
+    return this;
   }, ref$.request = function(go, reader){
     go = !!go;
     this.held = !go && !reader && (this.playing || this.held);
@@ -1139,7 +1153,9 @@
     if (this.encoding) {
       return Promise.reject(new Error('[lotion] already encoding'));
     }
-    this.request(false, true);
+    this.asReader(function(){
+      return this$.pause();
+    });
     t0 = this.t;
     this.encoding = true;
     this.root.classList.add('lotion-encoding');

@@ -566,10 +566,18 @@ player.prototype = Object.create(Object.prototype) <<<
     if nt > prev => a + (nt - b) % len else b - (a - nt) % len
 
   # 播放 / 暫停. 設了 host 時改交給 host
-  play: (go = true) -> @request go, false
-  pause: -> @request false, false
+  # 讀者的操作 ( toggle ) 也經過 play, 讓攔截 play 的外掛 ( 如 sfx 0.0.5 ) 照樣收到
+  play: (go = true) ->
+    reader = !!@by-reader
+    @by-reader = false
+    @request go, reader
+  pause: -> @play false
   # toggle 是讀者的操作 ( 控制列、點舞台、空白鍵 ): 暫停不算作品在等待
-  toggle: -> @request !@playing, true
+  toggle: -> @as-reader ~> @play !@playing
+  as-reader: (f) ->
+    @by-reader = true
+    try f! finally @by-reader = false
+    @
 
   # 播放 / 暫停的要求. reader: 由讀者發出. 作品自己暫停時記下 ( 算等待, 見 update-wait )
   request: (go, reader) ->
@@ -654,7 +662,7 @@ player.prototype = Object.create(Object.prototype) <<<
   encode: (opt = {}) ->
     if !@started => return Promise.reject new Error('[lotion] encode() before start()')
     if @encoding => return Promise.reject new Error('[lotion] already encoding')
-    @request false, true
+    @as-reader ~> @pause!
     t0 = @t
     @encoding = true
     @root.classList.add \lotion-encoding
