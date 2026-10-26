@@ -374,6 +374,8 @@
     this.marks = [];
     this.host = null;
     this.interactive = !!opt.interactive;
+    this.waiting = null;
+    this.held = false;
     this.state = cloneState(opt.state);
     if (m = /[?&]state=([^&#]*)/.exec(location.search)) {
       try {
@@ -778,6 +780,7 @@
     }
     this.updateCaption();
     this.fire('time', t);
+    this.updateWait();
     if (!o.jump) {
       return this.pass(prev, t);
     }
@@ -995,21 +998,62 @@
       return b - (a - nt) % len;
     }
   }, ref$.play = function(go){
+    var reader;
     go == null && (go = true);
+    reader = !!this.byReader;
+    this.byReader = false;
+    return this.request(go, reader);
+  }, ref$.pause = function(){
+    return this.play(false);
+  }, ref$.toggle = function(){
+    var this$ = this;
+    return this.asReader(function(){
+      return this$.play(!this$.playing);
+    });
+  }, ref$.asReader = function(f){
+    this.byReader = true;
+    try {
+      f();
+    } finally {
+      this.byReader = false;
+    }
+    return this;
+  }, ref$.request = function(go, reader){
+    go = !!go;
+    this.held = !go && !reader && (this.playing || this.held);
+    if (this.held && !(this.waiting && this.waiting.kind === 'pause')) {
+      this.heldT = this.t;
+    }
     if (this.host) {
       if (go) {
         this.host.play();
       } else {
         this.host.pause();
       }
-      return this;
+    } else {
+      this._play(go);
     }
-    this._play(go);
+    this.updateWait();
     return this;
-  }, ref$.pause = function(){
-    return this.play(false);
-  }, ref$.toggle = function(){
-    return this.play(!this.playing);
+  }, ref$.updateWait = function(){
+    var s, w, key;
+    s = this.span;
+    w = this.playing && s && this.t >= s[0] - 0.05 && this.t <= s[1] + 0.05
+      ? {
+        kind: 'loop',
+        span: s.slice()
+      }
+      : !this.playing && this.held ? {
+        kind: 'pause',
+        t: this.heldT
+      } : null;
+    key = w ? w.kind + "|" + (w.span || w.t) : '';
+    if (key === (this.waitKey || '')) {
+      return;
+    }
+    this.waitKey = key;
+    this.waiting = w;
+    return this.fire('wait', w);
   }, ref$._play = function(go){
     var was, id, this$ = this;
     go == null && (go = true);
@@ -1033,6 +1077,9 @@
     }
     was = this.playing;
     this.playing = go;
+    if (go) {
+      this.held = false;
+    }
     this.last = null;
     this._seek(this.t, {
       jump: true
@@ -1079,7 +1126,8 @@
       return;
     }
     this.span = v;
-    return this.fire('loop', v ? v.slice() : null);
+    this.fire('loop', v ? v.slice() : null);
+    return this.updateWait();
   }, ref$._rate = function(r){
     r = +r;
     if (!isFinite(r) || r === this.speed) {
@@ -1105,7 +1153,9 @@
     if (this.encoding) {
       return Promise.reject(new Error('[lotion] already encoding'));
     }
-    this.pause();
+    this.asReader(function(){
+      return this$.pause();
+    });
     t0 = this.t;
     this.encoding = true;
     this.root.classList.add('lotion-encoding');

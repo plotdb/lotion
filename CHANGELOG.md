@@ -1,3 +1,15 @@
+## v0.12.0
+
+ - waiting: `player.waiting` tells whether the work is waiting for the reader: `{kind: 'loop', span: [a, b]}` while
+   its own `loop(a, b)` is in effect, playing and inside the section; `{kind: 'pause', t}` after the work itself calls
+   `pause()` / `play(false)`; `null` otherwise, including a reader's pause ( control bar, stage tap, space, `toggle()` ).
+   Event `wait` fires on change. Decided the same way with a host. For sound ( sfx 0.0.6 ): works that wait with
+   `p.pause()` now keep their `loop: true` music and ambience playing ( ducked timeline ) during the wait instead of
+   going silent.
+ - `toggle()` now counts as a reader's action ( still through `play()`, so plugins hooking `play`, like sfx 0.0.5, keep
+   working ); `encode()` pauses as the reader.
+
+
 ## v0.11.1
 
  - captions: a single list `[[t0, t1, text], ...]` now takes a language instead of the empty key `''`:
