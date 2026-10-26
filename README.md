@@ -258,6 +258,19 @@ the section and stays; playback after `b` is not pulled back. For `at`:
 
 In `?render` without a host ( frame export ) nothing loops. With a host, the host loops its own clock ( below ).
 
+#### Waiting
+
+`player.waiting` says whether the work is waiting for the reader, for sound and hosts ( during a wait, sfx ducks
+the timeline and keeps beds playing instead of jumping back every lap ). The key always exists; the value is:
+
+ - `{kind: 'loop', span: [a, b]}`: the work's section loop ( `loop(a, b)` ) is in effect, playing, and the time is
+   inside the section ( ±0.05 s ). A seek out of the section ends it. `loop: true` is not a wait.
+ - `{kind: 'pause', t}`: the work itself stopped with `pause()` / `play(false)`, at `t`. It ends when playback resumes.
+ - `null` otherwise. A reader's pause ( control bar, a tap on the stage, the space key, `toggle()` ) is not a wait.
+
+Event `wait` fires with the new value when it changes. With a host it is decided the same way, by who asked for the
+pause, so the host can forward it.
+
 ### Host
 
 A page embedding the player can own the clock ( a bookshelf with its own transport, sound and speed control ). It

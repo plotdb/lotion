@@ -230,6 +230,10 @@ player = (opt = {}) ->
     # 外層 ( 如書架 ) 掌握時鐘時設定 {play, pause, seek, rate}: 作品與控制列的播放要求改交給它
     host: null
     interactive: !!opt.interactive
+    # 作品在等讀者: {kind: 'loop', span: [a, b]} | {kind: 'pause', t} | null ( 見 update-wait ). 鍵一定存在
+    waiting: null
+    # 作品自己暫停 ( 不是讀者 ) 中, 與暫停時的時間
+    held: false
   # 狀態: reset() 回到 opt.state; 網址 ?state=<JSON> 合併進目前狀態
   @state = clone-state opt.state
   if m = /[?&]state=([^&#]*)/.exec location.search
@@ -447,6 +451,7 @@ player.prototype = Object.create(Object.prototype) <<<
       @fire \chapter, @chapter
     @update-caption!
     @fire \time, t
+    @update-wait!
     if !o.jump => @pass prev, t
 
   # 播放經過的時間點: 播放中、方向與速率相同、一步不超過 MAX_STEP 秒, 才算連續經過 ( 見 README > Interaction )
@@ -561,12 +566,35 @@ player.prototype = Object.create(Object.prototype) <<<
     if nt > prev => a + (nt - b) % len else b - (a - nt) % len
 
   # 播放 / 暫停. 設了 host 時改交給 host
-  play: (go = true) ->
-    if @host => (if go => @host.play! else @host.pause!); return @
-    @_play go
+  play: (go = true) -> @request go, false
+  pause: -> @request false, false
+  # toggle 是讀者的操作 ( 控制列、點舞台、空白鍵 ): 暫停不算作品在等待
+  toggle: -> @request !@playing, true
+
+  # 播放 / 暫停的要求. reader: 由讀者發出. 作品自己暫停時記下 ( 算等待, 見 update-wait )
+  request: (go, reader) ->
+    go = !!go
+    @held = !go and !reader and (@playing or @held)
+    if @held and !(@waiting and @waiting.kind == \pause) => @held-t = @t
+    if @host => (if go => @host.play! else @host.pause!)
+    else @_play go
+    @update-wait!
     @
-  pause: -> @play false
-  toggle: -> @play !@playing
+
+  # 作品是否在等讀者, 改變時送出 wait 事件 ( 給音效等外層: 等待時壓低時間軸的聲音、播放等待用的聲音 ):
+  #  - {kind: 'loop', span: [a, b]}: 作品的循環區段 ( p.loop(a, b) ) 生效、播放中、時間在區段內. 整支循環 ( opt.loop ) 不算
+  #  - {kind: 'pause', t}: 作品自己呼叫 pause() / play(false) 停下; t 為停下的時間
+  #  - null: 其他, 包括讀者暫停
+  update-wait: ->
+    s = @span
+    w = if @playing and s and @t >= s.0 - 0.05 and @t <= s.1 + 0.05 => {kind: \loop, span: s.slice!}
+    else if !@playing and @held => {kind: \pause, t: @held-t}
+    else null
+    key = if w => "#{w.kind}|#{w.span or w.t}" else ''
+    if key == (@wait-key or '') => return
+    @wait-key = key
+    @waiting = w
+    @fire \wait, w
 
   # 實際改變播放狀態. 有 host 時不啟動自己的時鐘 ( 由外層逐格 drive.seek ), 只標記播放中
   _play: (go = true) ->
@@ -576,6 +604,7 @@ player.prototype = Object.create(Object.prototype) <<<
     if go and @speed < 0 and @t <= 0 => (if @loop-range! => @_seek @loop-range!.1, {jump: true} else go = false)
     was = @playing
     @playing = go
+    if go => @held = false
     @last = null
     @_seek @t, {jump: true}
     if go != was => @fire (if go => \play else \pause)
@@ -603,6 +632,7 @@ player.prototype = Object.create(Object.prototype) <<<
     if "#{@span}" == "#{v}" => return
     @span = v
     @fire \loop, (if v => v.slice! else null)
+    @update-wait!
 
   _rate: (r) ->
     r = +r
@@ -624,7 +654,7 @@ player.prototype = Object.create(Object.prototype) <<<
   encode: (opt = {}) ->
     if !@started => return Promise.reject new Error('[lotion] encode() before start()')
     if @encoding => return Promise.reject new Error('[lotion] already encoding')
-    @pause!
+    @request false, true
     t0 = @t
     @encoding = true
     @root.classList.add \lotion-encoding

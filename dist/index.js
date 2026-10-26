@@ -374,6 +374,8 @@
     this.marks = [];
     this.host = null;
     this.interactive = !!opt.interactive;
+    this.waiting = null;
+    this.held = false;
     this.state = cloneState(opt.state);
     if (m = /[?&]state=([^&#]*)/.exec(location.search)) {
       try {
@@ -778,6 +780,7 @@
     }
     this.updateCaption();
     this.fire('time', t);
+    this.updateWait();
     if (!o.jump) {
       return this.pass(prev, t);
     }
@@ -996,20 +999,47 @@
     }
   }, ref$.play = function(go){
     go == null && (go = true);
+    return this.request(go, false);
+  }, ref$.pause = function(){
+    return this.request(false, false);
+  }, ref$.toggle = function(){
+    return this.request(!this.playing, true);
+  }, ref$.request = function(go, reader){
+    go = !!go;
+    this.held = !go && !reader && (this.playing || this.held);
+    if (this.held && !(this.waiting && this.waiting.kind === 'pause')) {
+      this.heldT = this.t;
+    }
     if (this.host) {
       if (go) {
         this.host.play();
       } else {
         this.host.pause();
       }
-      return this;
+    } else {
+      this._play(go);
     }
-    this._play(go);
+    this.updateWait();
     return this;
-  }, ref$.pause = function(){
-    return this.play(false);
-  }, ref$.toggle = function(){
-    return this.play(!this.playing);
+  }, ref$.updateWait = function(){
+    var s, w, key;
+    s = this.span;
+    w = this.playing && s && this.t >= s[0] - 0.05 && this.t <= s[1] + 0.05
+      ? {
+        kind: 'loop',
+        span: s.slice()
+      }
+      : !this.playing && this.held ? {
+        kind: 'pause',
+        t: this.heldT
+      } : null;
+    key = w ? w.kind + "|" + (w.span || w.t) : '';
+    if (key === (this.waitKey || '')) {
+      return;
+    }
+    this.waitKey = key;
+    this.waiting = w;
+    return this.fire('wait', w);
   }, ref$._play = function(go){
     var was, id, this$ = this;
     go == null && (go = true);
@@ -1033,6 +1063,9 @@
     }
     was = this.playing;
     this.playing = go;
+    if (go) {
+      this.held = false;
+    }
     this.last = null;
     this._seek(this.t, {
       jump: true
@@ -1079,7 +1112,8 @@
       return;
     }
     this.span = v;
-    return this.fire('loop', v ? v.slice() : null);
+    this.fire('loop', v ? v.slice() : null);
+    return this.updateWait();
   }, ref$._rate = function(r){
     r = +r;
     if (!isFinite(r) || r === this.speed) {
@@ -1105,7 +1139,7 @@
     if (this.encoding) {
       return Promise.reject(new Error('[lotion] already encoding'));
     }
-    this.pause();
+    this.request(false, true);
     t0 = this.t;
     this.encoding = true;
     this.root.classList.add('lotion-encoding');
